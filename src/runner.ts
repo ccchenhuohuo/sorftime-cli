@@ -246,6 +246,9 @@ export async function runEndpoint(
   const format = outputFormat(globalOptions.output ?? process.env.SORFTIME_OUTPUT, config.output ?? defaultOutput);
   const maxPages = integerOption(globalOptions.maxPages, 100, "--max-pages", 1, 1000);
   const delayMs = integerOption(globalOptions.pageDelay, 0, "--page-delay", 0, 60_000);
+  if (globalOptions.allPages && !endpoint.pagination) {
+    throw new ValidationError(`Endpoint ${endpoint.name} does not have a documented safe pagination strategy.`);
+  }
   if (globalOptions.allPages && format === "raw") throw new ValidationError("--all-pages cannot be combined with --output raw.");
 
   throwIfAborted(signal);

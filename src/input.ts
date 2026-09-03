@@ -83,8 +83,10 @@ function parseJsonObject(text: string, label: string): JsonObject {
   let value: unknown;
   try {
     value = JSON.parse(text);
-  } catch (error) {
-    throw new ValidationError(`Invalid JSON in ${label}: ${error instanceof Error ? error.message : String(error)}`);
+  } catch {
+    // Parser messages are runtime-dependent and may quote the input around the
+    // failure. Do not risk echoing a secret that was accidentally pasted here.
+    throw new ValidationError(`Invalid JSON in ${label}.`);
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new ValidationError(`${label} must contain a JSON object.`);
@@ -167,8 +169,8 @@ async function coerceValue(raw: unknown, parameter: ParameterSpec, signal?: Abor
     const text = raw.startsWith("@") ? await readLimitedFile(raw.slice(1), signal) : raw;
     try {
       return JSON.parse(text) as JsonValue;
-    } catch (error) {
-      throw new ValidationError(`Invalid JSON for ${parameter.key}: ${error instanceof Error ? error.message : String(error)}`);
+    } catch {
+      throw new ValidationError(`Invalid JSON for ${parameter.key}.`);
     }
   }
   if (parameter.type === "image") {

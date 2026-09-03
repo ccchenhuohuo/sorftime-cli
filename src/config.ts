@@ -29,7 +29,9 @@ async function readJsonFile<T>(path: string, fallback: T): Promise<T> {
     return JSON.parse(await readFile(path, "utf8")) as T;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return fallback;
-    if (error instanceof SyntaxError) throw new ValidationError(`Invalid JSON in ${path}: ${error.message}`);
+    // JSON parser messages may include source excerpts. Credential files and
+    // mistakenly secret-bearing configs must never be reflected into stderr.
+    if (error instanceof SyntaxError) throw new ValidationError(`Invalid JSON in ${path}.`);
     throw error;
   }
 }
