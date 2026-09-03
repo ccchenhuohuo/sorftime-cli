@@ -56,16 +56,6 @@ flowchart LR
 | AI 编码代理开发规则（不是用户文档） | [AGENTS.md](AGENTS.md) |
 | Claude Code 项目路由 | [CLAUDE.md](CLAUDE.md) |
 
-## 安装 Skill
-
-```bash
-export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
-mkdir -p "$CODEX_HOME/skills"
-cp -R skills/sorftime-research "$CODEX_HOME/skills/sorftime-research"
-```
-
-Claude Code 则复制到 `.claude/skills/sorftime-research`。重新加载 Host 后可显式调用 `$sorftime-research`。Skill 只在 `sorftime-team` 可执行且 `sorftime-team auth status` 通过时才能工作。
-
 ## 安装
 
 需要 Node.js 20+。从 Release 的 tarball 一条命令装好，不需要 clone、不需要构建工具：
@@ -73,9 +63,11 @@ Claude Code 则复制到 `.claude/skills/sorftime-research`。重新加载 Host 
 ```bash
 npm install -g https://github.com/ccchenhuohuo/sorftime-cli/releases/latest/download/sorftime-cli.tgz
 sorftime-team --version
+sorftime-team skill              # 装 Skill 到 ~/.claude/skills/
+sorftime-team skill --host codex # 或装到 $CODEX_HOME/skills/
 ```
 
-升级就是重跑同一条命令。
+升级就是重跑前两条命令。Skill 随包分发，`skill` 子命令会把它复制到 Host 目录，不用手动找路径。
 
 > 命令名是 `sorftime-team`，不是 `sorftime`。服务商官方 CLI（`npm install -g sorftime-cli`）
 > 占用了 `sorftime` 这个命令名，两者可以共存互不干扰。
@@ -188,6 +180,7 @@ Utility commands:
 | `config list/path/get/set/unset` | Manage non-secret defaults |
 | `domains` | List 14 marketplace IDs, codes, aliases, and history support |
 | `endpoints [--group GROUP] [--json]` | List the complete 52-endpoint catalog and costs |
+| `skill [--host claude\|codex] [--dir PATH]` | 把随包分发的 Skill 装进 AI Host |
 | `api call <endpoint>` | Call a registered endpoint with a raw JSON object while retaining its full contract |
 
 Typed API commands are organized into six groups:

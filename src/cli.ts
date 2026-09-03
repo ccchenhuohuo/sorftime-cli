@@ -11,6 +11,7 @@ import { AuthenticationError, CliError, ValidationError } from "./errors.js";
 import { optionName } from "./input.js";
 import { billingFor, blockedReasons, effectFor } from "./policy.js";
 import { runEndpoint } from "./runner.js";
+import { installSkill, type SkillHost } from "./skill.js";
 import { VERSION } from "./version.js";
 import { OUTPUT_FORMATS } from "./types.js";
 import type { EndpointSpec, GlobalOptions, OutputFormat, StoredConfig } from "./types.js";
@@ -157,6 +158,17 @@ function installConfigCommands(program: Command): void {
   });
 }
 
+function installSkillCommands(program: Command): void {
+  program.command("skill")
+    .description("Install the bundled Sorftime Research Skill into an AI host")
+    .addOption(new Option("--host <host>", "Target AI host").choices(["claude", "codex"]).default("claude"))
+    .option("--dir <path>", "Install into this directory instead of the host default")
+    .action(async (options: { host: SkillHost; dir?: string }) => {
+      const result = await installSkill(import.meta.url, options.host, options.dir);
+      process.stdout.write(`Skill installed to ${result.to}\nReload the host to pick it up.\n`);
+    });
+}
+
 function installUtilityCommands(program: Command): void {
   program.command("domains").description("List supported Amazon marketplace domains").action(() => {
     const rows = DOMAINS.map((domain) => ({
@@ -239,6 +251,7 @@ export function createProgram(): Command {
 
   installAuthCommands(program);
   installConfigCommands(program);
+  installSkillCommands(program);
   installUtilityCommands(program);
   for (const groupName of ["category", "product", "keyword", "monitor", "agent", "account"] as const) {
     const group = program.command(groupName).description(`${groupName[0]?.toUpperCase()}${groupName.slice(1)} API commands`);

@@ -4,7 +4,7 @@
 import { password } from "@inquirer/prompts";
 import { Command, CommanderError, Option } from "commander";
 import { realpathSync } from "fs";
-import { fileURLToPath } from "url";
+import { fileURLToPath as fileURLToPath2 } from "url";
 
 // src/errors.ts
 var CliError = class extends Error {
@@ -41,7 +41,7 @@ var ApiError = class extends CliError {
 };
 
 // src/version.ts
-var VERSION = "2.0.0";
+var VERSION = "2.1.0";
 var USER_AGENT = `sorftime-cli/${VERSION}`;
 
 // src/client.ts
@@ -169,14 +169,14 @@ function parseRetryAfter(value) {
 async function wait(milliseconds, signal) {
   throwIfCancelled(signal);
   if (milliseconds <= 0) return;
-  await new Promise((resolve3, reject) => {
+  await new Promise((resolve4, reject) => {
     const onAbort = () => {
       clearTimeout(timeout);
       reject(new NetworkError("Request cancelled."));
     };
     const timeout = setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
-      resolve3();
+      resolve4();
     }, milliseconds);
     signal?.addEventListener("abort", onAbort, { once: true });
   });
@@ -1827,14 +1827,14 @@ function aggregatePages(first, location, rows, pagesFetched, startPage, capped) 
 async function pageDelay(milliseconds, signal) {
   throwIfAborted2(signal);
   if (milliseconds === 0) return;
-  await new Promise((resolve3, reject) => {
+  await new Promise((resolve4, reject) => {
     const onAbort = () => {
       clearTimeout(timer);
       reject(new NetworkError("Request cancelled."));
     };
     const timer = setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
-      resolve3();
+      resolve4();
     }, milliseconds);
     signal?.addEventListener("abort", onAbort, { once: true });
   });
@@ -1950,6 +1950,37 @@ async function runEndpoint(endpoint, commandOptions, globalOptions2, signal, dep
     ...globalOptions2.outputFile !== void 0 ? { outputFile: globalOptions2.outputFile } : {},
     ...globalOptions2.compact !== void 0 ? { compact: globalOptions2.compact } : {}
   });
+}
+
+// src/skill.ts
+import { cp, mkdir as mkdir3, stat as stat2 } from "fs/promises";
+import { homedir as homedir2 } from "os";
+import { dirname as dirname3, join as join2, resolve as resolve3 } from "path";
+import { fileURLToPath } from "url";
+var SKILL_NAME = "sorftime-research";
+function bundledSkillDirectory(entryUrl) {
+  return resolve3(dirname3(fileURLToPath(entryUrl)), "..", "skills", SKILL_NAME);
+}
+function hostSkillDirectory(host, env = process.env) {
+  if (host === "codex") {
+    return join2(env.CODEX_HOME ?? join2(homedir2(), ".codex"), "skills", SKILL_NAME);
+  }
+  return join2(homedir2(), ".claude", "skills", SKILL_NAME);
+}
+async function installSkill(entryUrl, host, explicitDirectory) {
+  const from = bundledSkillDirectory(entryUrl);
+  try {
+    const metadata = await stat2(from);
+    if (!metadata.isDirectory()) throw new Error("not a directory");
+  } catch {
+    throw new ValidationError(
+      `Bundled Skill not found at ${from}. Install the CLI from a release tarball rather than a bare checkout.`
+    );
+  }
+  const to = explicitDirectory ? resolve3(explicitDirectory, SKILL_NAME) : hostSkillDirectory(host);
+  await mkdir3(dirname3(to), { recursive: true });
+  await cp(from, to, { recursive: true, force: true });
+  return { from, to };
 }
 
 // src/cli.ts
@@ -2085,6 +2116,14 @@ function installConfigCommands(program) {
 `);
   });
 }
+function installSkillCommands(program) {
+  program.command("skill").description("Install the bundled Sorftime Research Skill into an AI host").addOption(new Option("--host <host>", "Target AI host").choices(["claude", "codex"]).default("claude")).option("--dir <path>", "Install into this directory instead of the host default").action(async (options) => {
+    const result = await installSkill(import.meta.url, options.host, options.dir);
+    process.stdout.write(`Skill installed to ${result.to}
+Reload the host to pick it up.
+`);
+  });
+}
 function installUtilityCommands(program) {
   program.command("domains").description("List supported Amazon marketplace domains").action(() => {
     const rows = DOMAINS.map((domain) => ({
@@ -2144,6 +2183,7 @@ function createProgram() {
   program.name("sorftime-team").description("Complete CLI for the Sorftime Enterprise API").version(VERSION).showSuggestionAfterError().showHelpAfterError().option("-d, --domain <domain>", "Amazon marketplace ID/code (default: us)").option("--base-url <url>", "API base URL (remote origins also require deployment trust)").option("--timeout <seconds>", "Request timeout in seconds (1-3600)").option("--retries <count>", "Retry transient transport/HTTP failures (0-5; default: 0)").option("--retry-unsafe", "Allow requested retries for task-creating or mutating endpoints").option("--all-pages", "Fetch and aggregate every page for supported list endpoints").option("--max-pages <count>", "Safety cap for --all-pages (1-1000; default: 100)").option("--page-delay <milliseconds>", "Delay between pages (0-60000; default: 0)").addOption(new Option("-o, --output <format>", "Output format").choices([...OUTPUT_FORMATS])).option("--data-only", "Output only the Data/data field from the response envelope").option("--select <path>", "Select a dot-separated response path").option("--output-file <path>", "Write output atomically to a file").option("--compact", "Emit compact JSON").option("--verbose", "Print safe request diagnostics to stderr (credentials are never printed)").option("--force", "Bypass marketplace history-support guardrails").option("--allow-coin", "Permit one call to a Coin-spending endpoint (blocked by default)").option("--allow-write", "Permit one call that changes shared account state (blocked by default)");
   installAuthCommands(program);
   installConfigCommands(program);
+  installSkillCommands(program);
   installUtilityCommands(program);
   for (const groupName of ["category", "product", "keyword", "monitor", "agent", "account"]) {
     const group = program.command(groupName).description(`${groupName[0]?.toUpperCase()}${groupName.slice(1)} API commands`);
@@ -2180,7 +2220,7 @@ process.once("SIGINT", () => {
   process.exitCode = 130;
 });
 var invokedPath = process.argv[1];
-var isEntrypoint = invokedPath !== void 0 && realpathSync(invokedPath) === realpathSync(fileURLToPath(import.meta.url));
+var isEntrypoint = invokedPath !== void 0 && realpathSync(invokedPath) === realpathSync(fileURLToPath2(import.meta.url));
 if (isEntrypoint) await runCli();
 export {
   createProgram,

@@ -1,6 +1,6 @@
 {
   "name": "sorftime-cli",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Complete Sorftime Enterprise API CLI with an AI Skill for routing and interpretation",
   "private": true,
   "type": "module",
