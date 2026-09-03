@@ -130,7 +130,10 @@ describe("sorftime-research Skill contract", () => {
       const endpoint = ENDPOINTS.find((item) => item.name === row.endpoint);
       expect(endpoint, `unknown route endpoint ${row.endpoint}`).toBeDefined();
       if (!endpoint) continue;
-      expect(row.cost).toBe(endpoint.cost);
+      // The billing figure must match the registry exactly, but the Skill may append
+      // operational context after it — measured latency and payload size, for example,
+      // which belong in guidance rather than in the registry's documented cost string.
+      expect(row.cost.startsWith(endpoint.cost), `route cost "${row.cost}" must start with registry cost "${endpoint.cost}"`).toBe(true);
       expect(row.command).toContain(` ${endpoint.group} ${endpoint.command}`);
 
       const group = program.commands.find((command) => command.name() === endpoint.group);

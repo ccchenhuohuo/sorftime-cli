@@ -97,7 +97,7 @@ Prefix every marketplace command with the marketplace: `-d us`, `-d de`, `-d jp`
 | Intent | Endpoint | Command | Documented cost |
 |---|---|---|---|
 | Category Top 100 or date-range Best Sellers | `CategoryRequest` | `sorftime-team -d us category best-sellers --node-id <NodeId>` | `5 realtime; 10 per historical 3-day block` |
-| Category structure / NodeId lookup | `CategoryTree` | `sorftime-team -d us category tree` | `5 requests` |
+| Category structure / NodeId lookup, last resort | `CategoryTree` | `sorftime-team -d us category tree` | `5 requests; 6-10 minutes, 10 MB` |
 | Hot products in a category | `CategoryProducts` | `sorftime-team -d us category products --node-id <NodeId>` | `5 requests` |
 | Category-level metric over time | `CategoryTrend` | `sorftime-team -d us category trend --node-id <NodeId> --trend-index <0-15>` | `5 requests` |
 | Product detail and trends | `ProductRequest` | `sorftime-team -d us product get --asin <ASIN>` | `1 per ASIN; 2 for trends longer than 15 days` |
@@ -120,8 +120,11 @@ For the exact flag names of any endpoint, read its help rather than guessing:
 Ask for the smallest missing selector, and never fill it in yourself:
 
 - marketplace, when the question is not obviously about one site;
-- a category NodeId - do not turn a category name into an ID from memory; use `category tree` or
-  ask the user;
+- a category NodeId - never turn a category name into an ID from memory. **Ask the user first.**
+  A NodeId is visible in any Amazon Best Sellers URL, so the user can usually paste one in seconds.
+  `category tree` is the last resort: it is the only endpoint that maps names to IDs, but it costs
+  5 requests and takes 6-10 minutes to return about 10 MB, which you then search locally. Never
+  start it without saying how long it will take and getting agreement;
 - a 10-character ASIN - do not turn a product title into an ASIN;
 - a date or month range, and whether history is really needed given the per-block cost.
 
@@ -133,7 +136,9 @@ say so instead of correcting it silently.
 1. Run one command at a time and read the result before deciding the next.
 2. Default output is JSON when piped. Use `--select <path>` or `--data-only` to keep large
    payloads readable; use `--output-file` for anything big.
-3. `category tree` can exceed 10 MB. Write it to a file rather than into the transcript.
+3. `category tree` returns about 10 MB after 6-10 minutes (measured on US). Always write it to a
+   file, warn the user about the wait before starting, and never poll or re-run it - a second
+   call bills another 5 requests and the first one is still coming.
 4. Stop and report on upstream codes rather than retrying: `500` monthly quota exhausted, `501`
    per-minute limit, `694` insufficient requests, `400` unauthenticated IP, `401` endpoint not
    enabled, `402` no permission, `9` restricted resource.

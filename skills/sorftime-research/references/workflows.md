@@ -5,7 +5,9 @@ and obtain agreement for every non-free step and for the workflow total before s
 
 ## Category to product, without guessing an ID
 
-A category name is not a NodeId. Resolve it first.
+A category name is not a NodeId. **Ask the user for the NodeId first** - it appears in every
+Amazon Best Sellers URL. Only fall back to `category tree` when they cannot supply one, and
+say how long it takes before starting.
 
 ```bash
 # 5 requests. Measured live on US: 6m33s, 10.4 MB, 35,126 nodes.
