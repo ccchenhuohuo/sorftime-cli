@@ -37,7 +37,23 @@ sorftime auth status             # 只报告有无，不打印值
 sorftime auth logout             # 离职或换机时执行
 ```
 
-`auth login` **总是**把凭据原子写入 `credentials.json`（权限 `0600`，目录 `0700`），不写钥匙串——这样凭据不会出现在进程参数里。读取优先级是：`--token` 参数 > `SORFTIME_ACCOUNT_SK` 环境变量 > 旧版本遗留的 macOS 钥匙串项 > 0600 凭据文件。钥匙串只在读取路径上做旧版本兼容，`auth logout` 会一并清掉；设 `SORFTIME_CREDENTIAL_STORE=file` 可跳过钥匙串查找。
+`auth login` **总是**把凭据原子写入 `credentials.json`（权限 `0600`，目录 `0700`），不写钥匙串——这样凭据不会出现在进程参数里。读取优先级是：`SORFTIME_ACCOUNT_SK` 环境变量 > 旧版本遗留的 macOS 钥匙串项 > 0600 凭据文件；CLI 不提供 `--token`。钥匙串只在读取路径上做旧版本兼容，`auth logout` 会一并清掉；设 `SORFTIME_CREDENTIAL_STORE=file` 可跳过钥匙串查找。
+
+凭据文件不是只在创建时 chmod：每次读取都要求它是当前用户拥有的普通文件、不是符号链接，
+且 POSIX group/other 权限为零；`0644` 等文件会被拒绝并提示 `chmod 600`。
+
+## 自定义 API origin
+
+canonical `https://standardapi.sorftime.com` 与 loopback 测试 origin 默认可信。远程代理不能只靠
+普通查询可携带的 `--base-url`、`SORFTIME_BASE_URL` 或 config 开启；部署管理员还必须设置独立的
+精确 origin 白名单，例如：
+
+```bash
+export SORFTIME_TRUSTED_ORIGINS='https://sorftime-proxy.example.com,https://backup-proxy.example.com:8443'
+```
+
+只接受逗号分隔的 HTTPS origin，不接受 path、query、fragment 或 userinfo，端口也必须精确匹配。
+URL 自带 `user:password@` 一律拒绝。未授权 remote origin 会在读取 Account-SK 和发请求之前失败。
 
 不要把真实值放进：命令行参数、提交的 `.env`、CI 日志、截图、工单、Skill 文件、容器镜像层。
 
@@ -54,7 +70,7 @@ docker run --rm -e SORFTIME_ACCOUNT_SK=... sorftime-cli account request-stream
 - [ ] 月度 request 额度已确认，并按预计用量估算过够不够
 - [ ] 已在第二个网络环境验证过没有 IP 白名单问题（错误码 `400`）
 - [ ] 每位使用者都知道配额是共享的，以及遇到 `500`/`501`/`694` 要停不要重试
-- [ ] `sorftime endpoints` 的 `BLOCKED` 列已向使用者说明，且大家知道 `--allow-coin` 不该随手加
+- [ ] `sorftime endpoints` 的 `STATUS` 列已向使用者说明，且大家知道 `COIN+WRITE` 必须两个单次 flag 都明确批准
 - [ ] 凭据轮换流程写下来了（谁通知、多久、怎么确认全员完成）
 - [ ] 离职/换机的 `sorftime auth logout` 纳入了 offboarding 清单
 - [ ] Skill 已装到各自的 Host（`$CODEX_HOME/skills/` 或 `.claude/skills/`）

@@ -19,26 +19,64 @@ export function commanderProperty(key: string): string {
   return name.replace(/-([a-z])/gu, (_, character: string) => character.toUpperCase());
 }
 
-async function readLimitedFile(path: string): Promise<string> {
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw signal.reason ?? new Error("Interrupted");
+}
+
+async function readLimitedFile(path: string, signal?: AbortSignal): Promise<string> {
+  throwIfAborted(signal);
   const absolute = resolve(path);
   const metadata = await stat(absolute);
+  throwIfAborted(signal);
   if (metadata.size > MAX_JSON_BYTES) {
     throw new ValidationError(`Input file exceeds the ${MAX_JSON_BYTES / 1024 / 1024}MB limit.`);
   }
-  const buffer = await readFile(absolute);
+  const buffer = await readFile(absolute, signal ? { signal } : undefined);
+  throwIfAborted(signal);
   return buffer.toString("utf8");
 }
 
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of stdin) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += buffer.byteLength;
-    if (size > MAX_JSON_BYTES) throw new ValidationError(`Standard input exceeds the ${MAX_JSON_BYTES / 1024 / 1024}MB limit.`);
-    chunks.push(buffer);
-  }
-  return Buffer.concat(chunks).toString("utf8");
+async function readStdin(signal?: AbortSignal): Promise<string> {
+  throwIfAborted(signal);
+  return new Promise<string>((resolveInput, rejectInput) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    const cleanup = (): void => {
+      stdin.removeListener("data", onData);
+      stdin.removeListener("end", onEnd);
+      stdin.removeListener("error", onError);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const onData = (chunk: Buffer | string): void => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += buffer.byteLength;
+      if (size > MAX_JSON_BYTES) {
+        cleanup();
+        stdin.pause();
+        rejectInput(new ValidationError(`Standard input exceeds the ${MAX_JSON_BYTES / 1024 / 1024}MB limit.`));
+        return;
+      }
+      chunks.push(buffer);
+    };
+    const onEnd = (): void => {
+      cleanup();
+      resolveInput(Buffer.concat(chunks).toString("utf8"));
+    };
+    const onError = (error: Error): void => {
+      cleanup();
+      rejectInput(error);
+    };
+    const onAbort = (): void => {
+      cleanup();
+      stdin.pause();
+      rejectInput(signal?.reason ?? new Error("Interrupted"));
+    };
+    stdin.on("data", onData);
+    stdin.once("end", onEnd);
+    stdin.once("error", onError);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    stdin.resume();
+  });
 }
 
 function parseJsonObject(text: string, label: string): JsonObject {
@@ -96,7 +134,8 @@ function mimeForPath(path: string): string {
   } as Record<string, string>)[extension] ?? "application/octet-stream";
 }
 
-async function coerceValue(raw: unknown, parameter: ParameterSpec): Promise<JsonValue> {
+async function coerceValue(raw: unknown, parameter: ParameterSpec, signal?: AbortSignal): Promise<JsonValue> {
+  throwIfAborted(signal);
   if (parameter.type === "integer" || parameter.type === "number") {
     const value = parseNumber(raw, parameter.type === "integer", parameter);
     if (parameter.min !== undefined && value < parameter.min) {
@@ -120,11 +159,12 @@ async function coerceValue(raw: unknown, parameter: ParameterSpec): Promise<Json
   if (parameter.type === "string[]") {
     const values = Array.isArray(raw) ? raw : [raw];
     const items = values.flatMap((value) => String(value).split(",")).map((value) => value.trim()).filter(Boolean);
+    for (const item of items) validateFormat(item, parameter);
     return parameter.wire === "csv" ? items.join(",") : items;
   }
   if (parameter.type === "json") {
     if (typeof raw !== "string") return raw as JsonValue;
-    const text = raw.startsWith("@") ? await readLimitedFile(raw.slice(1)) : raw;
+    const text = raw.startsWith("@") ? await readLimitedFile(raw.slice(1), signal) : raw;
     try {
       return JSON.parse(text) as JsonValue;
     } catch (error) {
@@ -137,10 +177,12 @@ async function coerceValue(raw: unknown, parameter: ParameterSpec): Promise<Json
     const path = value.slice(1);
     const absolute = resolve(path);
     const metadata = await stat(absolute);
+    throwIfAborted(signal);
     if (metadata.size > MAX_IMAGE_BYTES) {
       throw new ValidationError(`Image file exceeds the ${MAX_IMAGE_BYTES / 1024 / 1024}MB safety limit.`);
     }
-    const buffer = await readFile(absolute);
+    const buffer = await readFile(absolute, signal ? { signal } : undefined);
+    throwIfAborted(signal);
     return `data:${mimeForPath(path)};base64,${buffer.toString("base64")}`;
   }
   const value = String(raw);
@@ -161,7 +203,9 @@ export async function buildRequestBody(
   endpoint: EndpointSpec,
   commandOptions: Record<string, unknown>,
   marketplace?: string,
+  signal?: AbortSignal,
 ): Promise<JsonObject> {
+  throwIfAborted(signal);
   const input: BodyInputOptions = {
     ...(typeof commandOptions.data === "string" ? { data: commandOptions.data } : {}),
     ...(typeof commandOptions.dataFile === "string" ? { dataFile: commandOptions.dataFile } : {}),
@@ -172,48 +216,74 @@ export async function buildRequestBody(
 
   let body: JsonObject = {};
   if (input.data !== undefined) body = parseJsonObject(input.data, "--data");
-  if (input.dataFile !== undefined) body = parseJsonObject(await readLimitedFile(input.dataFile), input.dataFile);
-  if (input.stdin) body = parseJsonObject(await readStdin(), "standard input");
+  if (input.dataFile !== undefined) body = parseJsonObject(await readLimitedFile(input.dataFile, signal), input.dataFile);
+  if (input.stdin) body = parseJsonObject(await readStdin(signal), "standard input");
 
   for (const parameter of endpoint.parameters) {
     const raw = commandOptions[commanderProperty(parameter.key)];
-    if (raw !== undefined) body[parameter.key] = await coerceValue(raw, parameter);
+    if (raw !== undefined) body[parameter.key] = await coerceValue(raw, parameter, signal);
   }
 
   for (const parameter of endpoint.parameters) {
-    if (parameter.required && (body[parameter.key] === undefined || body[parameter.key] === "")) {
-      throw new ValidationError(`Missing required option --${optionName(parameter.key)} (or provide ${parameter.key} in raw JSON).`);
+    const required = parameter.required === true
+      || (parameter.requiredWhen?.marketplaces.includes((marketplace ?? "US").toUpperCase()) ?? false);
+    const initialValue = body[parameter.key];
+    if (required && isEmptyRequiredValue(initialValue)) {
+      const reason = parameter.requiredWhen ? ` ${parameter.requiredWhen.reason}.` : "";
+      throw new ValidationError(
+        `Missing required option --${optionName(parameter.key)} (or provide ${parameter.key} in raw JSON).${reason}`,
+      );
     }
-    const value = body[parameter.key];
-    if (value !== undefined && (parameter.type === "integer" || parameter.type === "number")) {
-      body[parameter.key] = await coerceValue(value, parameter);
+    if (initialValue === null) throw new ValidationError(`${parameter.key} cannot be null.`);
+    if (initialValue !== undefined) body[parameter.key] = await coerceValue(initialValue, parameter, signal);
+    if (required && isEmptyRequiredValue(body[parameter.key])) {
+      const reason = parameter.requiredWhen ? ` ${parameter.requiredWhen.reason}.` : "";
+      throw new ValidationError(
+        `Missing required option --${optionName(parameter.key)} (or provide ${parameter.key} in raw JSON).${reason}`,
+      );
     }
-    if (value !== undefined && parameter.type === "string" && typeof value === "string") validateFormat(value, parameter);
   }
 
-  validateEndpointBody(endpoint, body, marketplace);
+  validateEndpointBody(endpoint, body);
+  throwIfAborted(signal);
   return body;
 }
 
-/**
- * Parameters the source documentation marks optional but the API rejects without.
- * Each was verified live on 2026-09-03: omitting it returns business code 10
- * (invalid parameter) after a wasted round trip. Failing locally is cheaper and clearer.
- */
-function validateDocumentedOptionalButRequired(endpoint: EndpointSpec, body: JsonObject, marketplace?: string): void {
-  if (endpoint.name === "KeywordQuery" && body.Pattern === undefined) {
-    throw new ValidationError("KeywordQuery requires --pattern; the API rejects the call without it despite the documentation marking it optional.");
-  }
-  if (endpoint.name === "AIResultQuery" && (body.QueryStart === undefined || body.QueryEnd === undefined)) {
-    throw new ValidationError("AIResultQuery requires --query-start and --query-end (span up to 7 days); the API rejects the call without them despite the documentation marking them optional.");
-  }
-  if (endpoint.name === "KeywordProductRanking" && body.Month === undefined && (marketplace ?? "US").toUpperCase() === "US") {
-    throw new ValidationError("KeywordProductRanking requires --month (YYYY-MM) on the US marketplace; the API rejects the call without it despite the documentation marking it optional.");
+function isEmptyRequiredValue(value: JsonValue | undefined): boolean {
+  return value === undefined
+    || value === null
+    || (typeof value === "string" && value.trim() === "")
+    || (Array.isArray(value) && value.length === 0);
+}
+
+function dateOrdinal(value: JsonValue | undefined): number | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = /^\d{4}-\d{2}$/u.test(value) ? `${value}-01` : value;
+  const parsed = Date.parse(`${normalized}T00:00:00Z`);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+function validateDateRanges(endpoint: EndpointSpec, body: JsonObject): void {
+  for (const range of endpoint.dateRanges ?? []) {
+    const start = dateOrdinal(body[range.startKey]);
+    const end = dateOrdinal(body[range.endKey]);
+    if (start === undefined || end === undefined) continue;
+    if (start > end) {
+      throw new ValidationError(`${range.startKey} must not be after ${range.endKey}.`);
+    }
+    if (range.maxCalendarDays !== undefined) {
+      const calendarDays = Math.floor((end - start) / 86_400_000) + 1;
+      if (calendarDays > range.maxCalendarDays) {
+        throw new ValidationError(
+          `${range.startKey} through ${range.endKey} may span at most ${range.maxCalendarDays} calendar days.`,
+        );
+      }
+    }
   }
 }
 
-function validateEndpointBody(endpoint: EndpointSpec, body: JsonObject, marketplace?: string): void {
-  validateDocumentedOptionalButRequired(endpoint, body, marketplace);
+function validateEndpointBody(endpoint: EndpointSpec, body: JsonObject): void {
+  validateDateRanges(endpoint, body);
   // ASIN goes on the wire as a comma-separated string, so count the parts, not an array.
   if (endpoint.name === "ProductRequest" && body.ASIN !== undefined) {
     const count = Array.isArray(body.ASIN)
@@ -231,6 +301,13 @@ function validateEndpointBody(endpoint: EndpointSpec, body: JsonObject, marketpl
   }
   if (endpoint.name === "CoinStream" && Array.isArray(body.QueryDate) && body.QueryDate.length !== 2) {
     throw new ValidationError("CoinStream --query-date requires exactly two values: start and end.");
+  }
+  if (endpoint.name === "CoinStream" && Array.isArray(body.QueryDate) && body.QueryDate.length === 2) {
+    const start = dateOrdinal(body.QueryDate[0]);
+    const end = dateOrdinal(body.QueryDate[1]);
+    if (start !== undefined && end !== undefined && start > end) {
+      throw new ValidationError("CoinStream QueryDate start must not be after end.");
+    }
   }
   if (endpoint.name === "ProductRequest" && body.QueryTrendEndDt !== undefined && body.QueryTrendStartDt === undefined) {
     throw new ValidationError("--query-trend-end-dt requires --query-trend-start-dt.");

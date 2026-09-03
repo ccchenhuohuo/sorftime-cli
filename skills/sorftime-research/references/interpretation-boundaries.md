@@ -60,7 +60,9 @@ Not allowed:
 ## Cost and credentials
 
 - Never ask for, display, or write the Account-SK, and never accept one pasted into the chat.
-- Say what a command will cost before running it, and stop if the user has not agreed to the spend.
-- Never pass `--allow-coin` or `--force` on your own initiative.
+- Check each prospective command in CLI discovery first. State that `free` costs zero; for every
+  non-free command, name the endpoint, marketplace, estimated cost, and stop until the user agrees.
+- Never pass `--allow-coin`, `--allow-write`, or `--force` on your own initiative. A command that
+  needs both policy overrides requires the user to approve both consequences separately.
 - The quota is shared. If you hit `500`, `501`, or `694`, report it as an account-level condition -
   it may be caused by a colleague - and stop rather than retrying.

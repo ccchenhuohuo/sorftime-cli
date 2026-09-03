@@ -2,12 +2,14 @@ import { ENDPOINTS } from "./endpoints.js";
 import { ValidationError } from "./errors.js";
 
 /**
- * How an endpoint is charged upstream.
+ * The worst cost consequence an endpoint invocation can have, including downstream
+ * monitoring it creates, resumes, or changes. This is deliberately stricter than the
+ * advisory price of the HTTP call itself.
  *
- * - `free`            no quota and no Coin movement.
+ * - `free`            no quota use and cannot enable Coin movement.
  * - `request`         consumes the account-global monthly request quota.
  * - `coin`            consumes Coin points once per call.
- * - `recurring_coin`  registers a subscription that keeps consuming Coin every period.
+ * - `recurring_coin`  can create, start, or change monitoring that consumes Coin over time.
  * - `unknown`         the source documentation does not state a cost.
  */
 export type BillingKind = "free" | "request" | "coin" | "recurring_coin" | "unknown";
@@ -56,7 +58,7 @@ export const ENDPOINT_BILLING: Readonly<Record<string, BillingKind>> = {
   // Data monitoring
   KeywordBatchSubscription: "recurring_coin",
   KeywordTasks: "free",
-  KeywordBatchTaskUpdate: "free",
+  KeywordBatchTaskUpdate: "recurring_coin", // Update=2 can resume Coin-billed monitoring
   KeywordBatchScheduleList: "free",
   KeywordBatchScheduleDetail: "free",
   BestSellerListSubscription: "recurring_coin",
@@ -65,7 +67,7 @@ export const ENDPOINT_BILLING: Readonly<Record<string, BillingKind>> = {
   BestSellerListDataCollect: "free",
   ProductSellerSubscription: "recurring_coin",
   ProductSellerTasks: "free",
-  ProductSellerTaskUpdate: "free",
+  ProductSellerTaskUpdate: "recurring_coin", // undocumented body; fail closed on worst effect
   ProductSellerTaskScheduleList: "free",
   ProductSellerTaskScheduleDetail: "free",
   ASINSubscription: "recurring_coin",
@@ -93,17 +95,77 @@ export const ENDPOINT_BILLING: Readonly<Record<string, BillingKind>> = {
  */
 export type EndpointEffect = "read" | "write";
 
-/** The five endpoints that create, modify, or delete shared account state. */
+/** Exhaustive effect classification for the same 52-endpoint registry. */
 export const ENDPOINT_EFFECT: Readonly<Record<string, EndpointEffect>> = {
-  FavoriteKeyword: "write",          // adds a term to the shared keyword dictionary
-  ChangeFavoriteKeyword: "write",    // moves or deletes a dictionary term; body undocumented
-  KeywordBatchTaskUpdate: "write",   // Update=9 deletes a keyword monitor
-  BestSellerListDelete: "write",     // deletes a Best Seller monitor, not recoverable
-  ProductSellerTaskUpdate: "write",  // modifies or deletes a seller/stock monitor
+  // Category market
+  CategoryTree: "read",
+  CategoryRequest: "read",
+  CategoryProducts: "read",
+  CategoryTrend: "read",
+
+  // Product
+  ProductRequest: "read",
+  ProductQuery: "read",
+  AsinSalesVolume: "read",
+  ProductVariationHistory: "read",
+  ProductRealtimeRequest: "read",
+  ProductRealtimeRequestStatusQuery: "read",
+  ProductReviewsCollection: "read",
+  ProductReviewsCollectionStatusQuery: "read",
+  ProductReviewsQuery: "read",
+  SimilarProductRealtimeRequest: "read",
+  SimilarProductRealtimeRequestStatusQuery: "read",
+  SimilarProductRealtimeRequestCollection: "read",
+
+  // Keywords
+  KeywordQuery: "read",
+  KeywordSearchResults: "read",
+  KeywordRequest: "read",
+  KeywordSearchResultTrend: "read",
+  CategoryRequestKeyword: "read",
+  ASINRequestKeyword: "read",
+  KeywordProductRanking: "read",
+  ASINKeywordRanking: "read",
+  KeywordExtends: "read",
+  FavoriteKeyword: "write",
+  ChangeFavoriteKeyword: "write",
+  GetFavoriteKeyword: "read",
+
+  // Data monitoring
+  KeywordBatchSubscription: "write",
+  KeywordTasks: "read",
+  KeywordBatchTaskUpdate: "write",
+  KeywordBatchScheduleList: "read",
+  KeywordBatchScheduleDetail: "read",
+  BestSellerListSubscription: "write",
+  BestSellerListTask: "read",
+  BestSellerListDelete: "write",
+  BestSellerListDataCollect: "read",
+  ProductSellerSubscription: "write",
+  ProductSellerTasks: "read",
+  ProductSellerTaskUpdate: "write",
+  ProductSellerTaskScheduleList: "read",
+  ProductSellerTaskScheduleDetail: "read",
+  ASINSubscription: "write",
+  ASINSubscriptionQuery: "read",
+  ASINSubscriptionCollection: "read",
+
+  // Sorftime Agent
+  ProductAssistant: "read",
+  CategoryAssistant: "read",
+  AIResultQuery: "read",
+  AIResult: "read",
+
+  // Account
+  CoinQuery: "read",
+  CoinStream: "read",
+  RequestStreamMonth: "read",
 };
 
 export function effectFor(endpoint: string): EndpointEffect {
-  return ENDPOINT_EFFECT[endpoint] ?? "read";
+  const effect = ENDPOINT_EFFECT[endpoint];
+  if (!effect) throw new ValidationError(`Endpoint '${endpoint}' has no effect classification.`);
+  return effect;
 }
 
 /** Fails the build/test suite if the endpoint registry and the cost model drift apart. */
@@ -115,6 +177,19 @@ export function validateBillingCatalog(): void {
   if (missing.length > 0 || extra.length > 0) {
     throw new ValidationError(
       `Endpoint billing catalog mismatch (missing: ${missing.join(", ") || "none"}; extra: ${extra.join(", ") || "none"}).`,
+    );
+  }
+}
+
+/** Fails the build/test suite if the endpoint registry and effect model drift apart. */
+export function validateEffectCatalog(): void {
+  const endpointNames = new Set(ENDPOINTS.map((endpoint) => endpoint.name));
+  const effectNames = new Set(Object.keys(ENDPOINT_EFFECT));
+  const missing = [...endpointNames].filter((name) => !effectNames.has(name));
+  const extra = [...effectNames].filter((name) => !endpointNames.has(name));
+  if (missing.length > 0 || extra.length > 0) {
+    throw new ValidationError(
+      `Endpoint effect catalog mismatch (missing: ${missing.join(", ") || "none"}; extra: ${extra.join(", ") || "none"}).`,
     );
   }
 }
@@ -152,32 +227,43 @@ export interface BlockedReason {
  * every other holder of the shared credential sees, and some of them delete a live
  * monitor with no undo. Both are refused unless an operator opts in for one call.
  */
-export function blockedReason(endpointName: string, overrides: PolicyOverrides = {}): BlockedReason | undefined {
-  // An endpoint absent from the catalog can only arrive through the raw `api call`
-  // escape hatch. Its cost is unverifiable, so it takes the same fail-closed path.
+export function blockedReasons(endpointName: string, overrides: PolicyOverrides = {}): BlockedReason[] {
+  // Missing catalog entries fail closed on both independent axes. `api call` rejects
+  // unknown endpoint names even earlier, but this keeps the policy safe in isolation.
   const billing = ENDPOINT_BILLING[endpointName] ?? "unknown";
+  const effect = ENDPOINT_EFFECT[endpointName] ?? "write";
+  const reasons: BlockedReason[] = [];
   if (spendsCoin(billing) && overrides.allowCoin !== true) {
-    return {
+    reasons.push({
       kind: "coin",
       detail: billing === "unknown"
         ? "its upstream cost is undocumented, so it is treated as Coin-spending"
         : billing === "recurring_coin"
-          ? "it registers a subscription that keeps spending Coin every period"
+          ? "it can start or change monitoring that keeps spending Coin every period"
           : "it spends Coin points",
-    };
+    });
   }
-  if (effectFor(endpointName) === "write" && overrides.allowWrite !== true) {
-    return { kind: "write", detail: "it creates, modifies, or deletes state on the shared account" };
+  if (effect === "write" && overrides.allowWrite !== true) {
+    reasons.push({ kind: "write", detail: "it creates, modifies, or deletes state on the shared account" });
   }
-  return undefined;
+  return reasons;
+}
+
+export function blockedReason(endpointName: string, overrides: PolicyOverrides = {}): BlockedReason | undefined {
+  return blockedReasons(endpointName, overrides)[0];
 }
 
 export function assertEndpointAllowed(endpointName: string, overrides: PolicyOverrides = {}): void {
-  const blocked = blockedReason(endpointName, overrides);
-  if (!blocked) return;
-  const flag = blocked.kind === "coin" ? "--allow-coin" : "--allow-write";
+  const blocked = blockedReasons(endpointName, overrides);
+  if (blocked.length === 0) return;
+  const flags = blocked.map((reason) => reason.kind === "coin" ? "--allow-coin" : "--allow-write");
+  const flagText = flags.length === 1 ? flags[0] : `${flags.slice(0, -1).join(", ")} and ${flags.at(-1)}`;
   throw new ValidationError(
-    `${endpointName} is blocked: ${blocked.detail}. This deployment exposes free and request-quota reads only. `
-    + `Pass ${flag} to override for a single call.`,
+    `${endpointName} is blocked: ${blocked.map((reason) => reason.detail).join("; ")}. `
+    + `Missing single-call override${flags.length === 1 ? "" : "s"}: ${flagText}.`,
   );
 }
+
+// Fail during CLI startup as well as in tests if either policy catalog drifts.
+validateBillingCatalog();
+validateEffectCatalog();

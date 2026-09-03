@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { findEndpoint } from "../src/endpoints.js";
 import { ValidationError } from "../src/errors.js";
@@ -30,25 +33,37 @@ describe("request-body coercion", () => {
     expect(Array.isArray(body.ASIN)).toBe(false);
   });
 
+  it("applies ProductRequest CSV wire encoding to raw JSON and raw files", async () => {
+    const expected = { ASIN: "B000TEST01,B000TEST02", Trend: 2 };
+    await expect(buildRequestBody(endpoint("ProductRequest"), {
+      data: '{"ASIN":["B000TEST01","B000TEST02"],"Trend":2}',
+    })).resolves.toEqual(expected);
+
+    const directory = await mkdtemp(join(tmpdir(), "sorftime-input-"));
+    const path = join(directory, "body.json");
+    await writeFile(path, '{"ASIN":["B000TEST01","B000TEST02"],"Trend":2}');
+    await expect(buildRequestBody(endpoint("ProductRequest"), { dataFile: path })).resolves.toEqual(expected);
+  });
+
   // Verified live 2026-09-03: each of these returns business code 10 when the parameter is
   // omitted, even though the source documentation marks it optional. Fail locally instead.
   it("requires KeywordQuery --pattern", async () => {
     await expect(buildRequestBody(endpoint("KeywordQuery"), { pageIndex: "1" }))
-      .rejects.toThrow(/requires --pattern/u);
+      .rejects.toThrow(/Missing required option --pattern/u);
     await expect(buildRequestBody(endpoint("KeywordQuery"), { pattern: '{"RankCondition":[1,1000]}' }))
       .resolves.toMatchObject({ Pattern: { RankCondition: [1, 1000] } });
   });
 
   it("requires AIResultQuery date range", async () => {
     await expect(buildRequestBody(endpoint("AIResultQuery"), { method: "0" }))
-      .rejects.toThrow(/requires --query-start and --query-end/u);
+      .rejects.toThrow(/Missing required option --query-start/u);
     await expect(buildRequestBody(endpoint("AIResultQuery"), { method: "0", queryStart: "2026-08-28", queryEnd: "2026-09-03" }))
       .resolves.toMatchObject({ Method: 0 });
   });
 
   it("requires KeywordProductRanking --month on US only", async () => {
     await expect(buildRequestBody(endpoint("KeywordProductRanking"), { keyword: "bluetooth speaker" }, "US"))
-      .rejects.toThrow(/requires --month/u);
+      .rejects.toThrow(/Missing required option --month/u);
     await expect(buildRequestBody(endpoint("KeywordProductRanking"), { keyword: "bluetooth speaker", month: "2026-07" }, "US"))
       .resolves.toMatchObject({ Month: "2026-07" });
     await expect(buildRequestBody(endpoint("KeywordProductRanking"), { keyword: "bluetooth speaker" }, "DE"))
@@ -156,6 +171,39 @@ describe("request-body validation", () => {
     await expect(buildRequestBody(endpoint("ProductRequest"), { asin: asins })).rejects.toThrow(
       "at most 10 ASINs",
     );
+  });
+
+  it("rejects empty and null required values after raw/typed merging", async () => {
+    await expect(buildRequestBody(endpoint("ProductRequest"), { data: '{"ASIN":[]}' }))
+      .rejects.toThrow(/Missing required option --asin/u);
+    await expect(buildRequestBody(endpoint("ProductRequest"), { asin: ["", "  "] }))
+      .rejects.toThrow(/Missing required option --asin/u);
+    await expect(buildRequestBody(endpoint("KeywordQuery"), { data: '{"Pattern":null}' }))
+      .rejects.toThrow(/Missing required option --pattern/u);
+    await expect(buildRequestBody(endpoint("AIResultQuery"), {
+      data: '{"Method":0,"QueryStart":null,"QueryEnd":"2026-09-03"}',
+    })).rejects.toThrow(/Missing required option --query-start/u);
+  });
+
+  it("validates AI task date ordering and the seven-calendar-day limit", async () => {
+    await expect(buildRequestBody(endpoint("AIResultQuery"), {
+      method: "0", queryStart: "2026-09-03", queryEnd: "2026-09-02",
+    })).rejects.toThrow(/QueryStart must not be after QueryEnd/u);
+    await expect(buildRequestBody(endpoint("AIResultQuery"), {
+      method: "0", queryStart: "2026-08-27", queryEnd: "2026-09-03",
+    })).rejects.toThrow(/at most 7 calendar days/u);
+    await expect(buildRequestBody(endpoint("AIResultQuery"), {
+      method: "0", queryStart: "2026-08-28", queryEnd: "2026-09-03",
+    })).resolves.toMatchObject({ QueryStart: "2026-08-28", QueryEnd: "2026-09-03" });
+  });
+
+  it("applies choices to raw fields as well as typed flags", async () => {
+    await expect(buildRequestBody(endpoint("ProductQuery"), {
+      data: '{"Query":1,"QueryType":"17","Pattern":"sentinel"}',
+    })).rejects.toThrow(/QueryType must be one of/u);
+    await expect(buildRequestBody(endpoint("ProductReviewsCollection"), {
+      data: '{"ASIN":"B000TEST01","Mode":0,"OnlyPurchase":0}',
+    })).rejects.toThrow(/OnlyPurchase must be one of: 1/u);
   });
 
   it("requires both single-condition ProductQuery fields, but permits raw multi-condition input", async () => {

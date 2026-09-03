@@ -27,7 +27,8 @@ Read the smallest relevant set before changing code:
 
 - package and billing policy: `1.0.0`;
 - endpoint registry: 52 Sorftime endpoints, all reachable from the CLI;
-- exposure policy: 41 of 52 endpoints open; 6 blocked as Coin-spending or unpriced, 5 as shared-state writes;
+- exposure policy: 41 of 52 endpoints open; 8 have Coin/current-or-recurring/unknown-cost consequences,
+  9 are shared-state writes, 6 are in both sets, and the blocked union is 11;
 - Skill: `sorftime-research`;
 - runtime: Node.js 20+, TypeScript, no server dependencies.
 
@@ -45,6 +46,9 @@ Read the smallest relevant set before changing code:
 10. Credentials come from `sorftime auth login`, `SORFTIME_ACCOUNT_SK`, the OS keychain, or a mode-0600 file. `config set` must keep refusing credential-shaped keys.
 11. The Skill must not request credentials, invent identifiers, silently substitute a different endpoint for a blocked one, or infer causality.
 12. Do not reintroduce an MCP server, an HTTP transport, or a per-identity rate limiter without a topology that needs one.
+13. Account-SK may be sent only to the canonical Sorftime origin, loopback, or an exact HTTPS origin
+    set independently by deployment through `SORFTIME_TRUSTED_ORIGINS`. Reject URL userinfo and never
+    turn remote-origin trust into an ordinary per-query flag.
 
 ## Module ownership
 
@@ -105,7 +109,7 @@ pnpm exec vitest run test/skill-contract.test.ts
 
 ## Review checklist
 
-- Does the billing catalog still classify every registered endpoint?
+- Do the billing and effect catalogs still classify every registered endpoint?
 - Can a Coin-spending or state-changing call reach the network without its explicit override?
 - Could a secret enter output, logs, fixtures, docs, or git?
 - Are empty, unavailable, blocked, and zero kept distinct?

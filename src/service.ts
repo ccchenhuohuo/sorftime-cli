@@ -20,7 +20,6 @@ export interface SorftimeCallOptions {
   signal?: AbortSignal;
   retries?: number;
   rawResponse?: boolean;
-  retryApiThrottle?: boolean;
   verbose?: boolean;
 }
 
@@ -46,7 +45,6 @@ export class SorftimeCoreClient {
       ...(this.config.maxResponseBytes !== undefined ? { maxResponseBytes: this.config.maxResponseBytes } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.rawResponse !== undefined ? { rawResponse: options.rawResponse } : {}),
-      ...(options.retryApiThrottle !== undefined ? { retryApiThrottle: options.retryApiThrottle } : {}),
       ...(options.verbose !== undefined ? { verbose: options.verbose } : {}),
     });
   }

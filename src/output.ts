@@ -98,8 +98,11 @@ function toJsonLines(value: unknown): string {
 export function prepareOutput(value: JsonValue, options: OutputOptions): unknown {
   let selected: unknown = value;
   if (options.dataOnly) {
+    const hasData = Boolean(selected && typeof selected === "object" && !Array.isArray(selected)
+      && Object.keys(selected).some((key) => key.toLowerCase() === "data"));
+    if (!hasData) throw new ValidationError("--data-only requires a Data/data field in the response envelope.");
     const data = apiEnvelopeData(selected);
-    if (data !== undefined) selected = data;
+    selected = data;
   }
   if (options.select) {
     const result = selectPath(selected, options.select);

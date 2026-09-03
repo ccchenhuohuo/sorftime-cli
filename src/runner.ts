@@ -1,23 +1,38 @@
-import { apiEnvelopeData, DEFAULT_BASE_URL } from "./client.js";
+import { DEFAULT_BASE_URL, DEFAULT_MAX_RESPONSE_BYTES, validateCredentialDestination } from "./client.js";
 import { loadConfig, resolveToken } from "./config.js";
-import { SorftimeCoreClient } from "./service.js";
 import { resolveDomain } from "./domains.js";
-import { AuthenticationError, ValidationError } from "./errors.js";
+import { AuthenticationError, NetworkError, ValidationError } from "./errors.js";
 import { buildRequestBody } from "./input.js";
 import { writeOutput } from "./output.js";
 import { assertEndpointAllowed } from "./policy.js";
+import { SorftimeCoreClient } from "./service.js";
+import { OUTPUT_FORMATS } from "./types.js";
+import type { SorftimeCallOptions, SorftimeCoreConfig } from "./service.js";
 import type { EndpointSpec, GlobalOptions, JsonObject, JsonValue, OutputFormat } from "./types.js";
 
-const OUTPUT_FORMATS: readonly OutputFormat[] = ["json", "jsonl", "yaml", "csv", "table", "raw"];
-const HISTORY_FIELDS: Record<string, readonly string[] | "always"> = {
-  CategoryRequest: ["QueryStart", "QueryDate", "QueryDays"],
-  CategoryTrend: "always",
-  ProductRequest: ["QueryTrendStartDt", "QueryTrendEndDt"],
-  AsinSalesVolume: ["QueryDate", "QueryEndDate"],
-  KeywordSearchResultTrend: ["QueryStart", "QueryEnd"],
-  KeywordProductRanking: ["Month"],
-  ASINKeywordRanking: ["QueryStart", "QueryEnd"],
+interface CoreClientLike {
+  call(options: SorftimeCallOptions): Promise<JsonValue>;
+}
+
+interface RunnerDependencies {
+  loadConfig: typeof loadConfig;
+  resolveToken: typeof resolveToken;
+  buildRequestBody: typeof buildRequestBody;
+  createCoreClient: (config: SorftimeCoreConfig) => CoreClientLike;
+  writeOutput: typeof writeOutput;
+}
+
+const DEFAULT_DEPENDENCIES: RunnerDependencies = {
+  loadConfig,
+  resolveToken,
+  buildRequestBody,
+  createCoreClient: (config) => new SorftimeCoreClient(config),
+  writeOutput,
 };
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new NetworkError("Request cancelled.");
+}
 
 function integerOption(value: string | number | undefined, fallback: number, label: string, min: number, max: number): number {
   if (value === undefined || value === "") return fallback;
@@ -36,79 +51,96 @@ function outputFormat(value: string | undefined, fallback: OutputFormat): Output
   return selected as OutputFormat;
 }
 
-function validateBaseUrl(baseUrl: string): string {
-  let url: URL;
-  try {
-    url = new URL(baseUrl);
-  } catch {
-    throw new ValidationError(`Invalid base URL '${baseUrl}'.`);
-  }
-  const local = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) {
-    throw new ValidationError("Base URL must use HTTPS (HTTP is accepted only for localhost testing). ");
-  }
-  return baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-}
-
 function requestsHistory(endpoint: EndpointSpec, body: JsonObject): boolean {
-  const fields = HISTORY_FIELDS[endpoint.name];
-  return fields === "always" || fields?.some((field) => body[field] !== undefined) === true;
+  const history = endpoint.history;
+  if (!history) return false;
+  return history.mode === "always" || history.fields.some((field) => body[field] !== undefined);
 }
 
 interface RowLocation {
   rows: JsonValue[];
-  dataKey?: string;
-  childKey?: string;
-  rootArray?: boolean;
+  actualPath: string[];
 }
 
 function caseInsensitiveKey(object: Record<string, JsonValue>, expected: string): string | undefined {
   return Object.keys(object).find((key) => key.toLowerCase() === expected.toLowerCase());
 }
 
-function locateRows(payload: JsonValue): RowLocation | undefined {
-  if (Array.isArray(payload)) return { rows: payload, rootArray: true };
-  if (!payload || typeof payload !== "object") return undefined;
-  const envelope = payload as Record<string, JsonValue>;
-  const dataKey = caseInsensitiveKey(envelope, "data");
-  const data = apiEnvelopeData(payload) as JsonValue | undefined;
-  if (Array.isArray(data)) return { rows: data, ...(dataKey ? { dataKey } : {}) };
-  if (!data || typeof data !== "object" || Array.isArray(data)) return undefined;
-
-  const dataObject = data as Record<string, JsonValue>;
-  const preferred = ["items", "list", "rows", "records", "results", "products", "keywords"];
-  const childKey = preferred
-    .map((name) => caseInsensitiveKey(dataObject, name))
-    .find((key) => key !== undefined && Array.isArray(dataObject[key]));
-  const arrayKeys = Object.keys(dataObject).filter((key) => Array.isArray(dataObject[key]));
-  const selected = childKey ?? (arrayKeys.length === 1 ? arrayKeys[0] : undefined);
-  if (!selected || !dataKey) return undefined;
-  return { rows: dataObject[selected] as JsonValue[], dataKey, childKey: selected };
+function locateRows(payload: JsonValue, configuredPath: readonly string[]): RowLocation | undefined {
+  if (configuredPath.length === 0) {
+    return Array.isArray(payload) ? { rows: payload, actualPath: [] } : undefined;
+  }
+  let current: JsonValue = payload;
+  const actualPath: string[] = [];
+  for (const segment of configuredPath) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
+    const actual = caseInsensitiveKey(current as Record<string, JsonValue>, segment);
+    if (!actual) return undefined;
+    actualPath.push(actual);
+    current = (current as Record<string, JsonValue>)[actual] as JsonValue;
+  }
+  return Array.isArray(current) ? { rows: current, actualPath } : undefined;
 }
 
-function aggregatePages(first: JsonValue, location: RowLocation, rows: JsonValue[], pagesFetched: number, startPage: number, capped: boolean): JsonValue {
-  if (location.rootArray) return rows;
-  if (!first || typeof first !== "object" || Array.isArray(first) || !location.dataKey) return rows;
-  const envelope = { ...(first as Record<string, JsonValue>) };
-  if (location.childKey) {
-    const data = envelope[location.dataKey];
-    envelope[location.dataKey] = {
-      ...((data && typeof data === "object" && !Array.isArray(data)) ? data : {}),
-      [location.childKey]: rows,
-    };
-  } else {
-    envelope[location.dataKey] = rows;
+function hasNullData(payload: JsonValue): boolean {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const envelope = payload as Record<string, JsonValue>;
+  const dataKey = caseInsensitiveKey(envelope, "Data");
+  return dataKey !== undefined && envelope[dataKey] === null;
+}
+
+function replaceRowsAtPath(payload: JsonValue, actualPath: readonly string[], rows: JsonValue[]): JsonValue {
+  if (actualPath.length === 0) return rows;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return rows;
+  const root = { ...(payload as Record<string, JsonValue>) };
+  let source: Record<string, JsonValue> = payload as Record<string, JsonValue>;
+  let target: Record<string, JsonValue> = root;
+  for (let index = 0; index < actualPath.length; index += 1) {
+    const key = actualPath[index];
+    if (!key) return rows;
+    if (index === actualPath.length - 1) {
+      target[key] = rows;
+      break;
+    }
+    const child = source[key];
+    if (!child || typeof child !== "object" || Array.isArray(child)) return rows;
+    const cloned = { ...(child as Record<string, JsonValue>) };
+    target[key] = cloned;
+    source = child as Record<string, JsonValue>;
+    target = cloned;
   }
-  envelope._pagination = { pagesFetched, startPage, maxPagesReached: capped };
-  return envelope;
+  return root;
+}
+
+function aggregatePages(
+  first: JsonValue,
+  location: RowLocation,
+  rows: JsonValue[],
+  pagesFetched: number,
+  startPage: number,
+  capped: boolean,
+): JsonValue {
+  const aggregated = replaceRowsAtPath(first, location.actualPath, rows);
+  if (!aggregated || typeof aggregated !== "object" || Array.isArray(aggregated)) return aggregated;
+  return {
+    ...(aggregated as Record<string, JsonValue>),
+    _pagination: {
+      pagesFetched,
+      startPage,
+      endPage: startPage + pagesFetched - 1,
+      maxPagesReached: capped,
+      upstreamMetadataFromPage: startPage,
+    },
+  };
 }
 
 async function pageDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
   if (milliseconds === 0) return;
   await new Promise<void>((resolve, reject) => {
     const onAbort = (): void => {
       clearTimeout(timer);
-      reject(signal?.reason ?? new Error("Interrupted"));
+      reject(new NetworkError("Request cancelled."));
     };
     const timer = setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
@@ -118,7 +150,7 @@ async function pageDelay(milliseconds: number, signal?: AbortSignal): Promise<vo
   });
 }
 
-async function requestAllPages(
+export async function requestAllPages(
   endpoint: EndpointSpec,
   baseBody: JsonObject,
   requestPage: (body: JsonObject) => Promise<JsonValue>,
@@ -131,35 +163,48 @@ async function requestAllPages(
   if (!pagination) throw new ValidationError(`Endpoint ${endpoint.name} does not have a documented safe pagination strategy.`);
   const startPageValue = baseBody[pagination.pageKey];
   const startPage = typeof startPageValue === "number" ? startPageValue : 1;
-  const requestedSize = pagination.pageSizeKey && typeof baseBody[pagination.pageSizeKey] === "number"
-    ? baseBody[pagination.pageSizeKey] as number
-    : pagination.defaultPageSize;
 
   let first: JsonValue | undefined;
   let firstLocation: RowLocation | undefined;
   const allRows: JsonValue[] = [];
   let pagesFetched = 0;
-  let lastPageWasFull = false;
+  let lastPageHadRows = false;
 
   for (let offset = 0; offset < maxPages; offset += 1) {
+    throwIfAborted(signal);
     const pageNumber = startPage + offset;
     if (offset > 0) await pageDelay(delayMs, signal);
+    throwIfAborted(signal);
     if (verbose) process.stderr.write(`Fetching page ${pageNumber} of ${endpoint.name}\n`);
     const payload = await requestPage({ ...baseBody, [pagination.pageKey]: pageNumber });
-    const located = locateRows(payload);
-    if (!located) {
-      throw new ValidationError(`Could not identify a result array in page ${pageNumber}; rerun without --all-pages.`);
-    }
+    throwIfAborted(signal);
     first ??= payload;
-    firstLocation ??= located;
     pagesFetched += 1;
+
+    if (hasNullData(payload)) {
+      if (offset === 0) return payload;
+      lastPageHadRows = false;
+      break;
+    }
+
+    const located = locateRows(payload, pagination.rowPath);
+    if (!located) {
+      throw new ValidationError(
+        `Page ${pageNumber} did not contain the registered result array at ${pagination.rowPath.join(".") || "<root>"}.`,
+      );
+    }
+    if (firstLocation && firstLocation.actualPath.join(".").toLowerCase() !== located.actualPath.join(".").toLowerCase()) {
+      throw new ValidationError(`Result-array shape changed on page ${pageNumber}; pagination stopped without guessing.`);
+    }
+    firstLocation ??= located;
     allRows.push(...located.rows);
-    lastPageWasFull = located.rows.length >= requestedSize;
-    if (located.rows.length < requestedSize) break;
+    lastPageHadRows = located.rows.length > 0;
+    if (located.rows.length === 0) break;
   }
 
   if (first === undefined || firstLocation === undefined) throw new ValidationError("Pagination returned no response.");
-  return aggregatePages(first, firstLocation, allRows, pagesFetched, startPage, pagesFetched === maxPages && lastPageWasFull);
+  const capped = pagesFetched === maxPages && lastPageHadRows;
+  return aggregatePages(first, firstLocation, allRows, pagesFetched, startPage, capped);
 }
 
 export async function runEndpoint(
@@ -167,23 +212,26 @@ export async function runEndpoint(
   commandOptions: Record<string, unknown>,
   globalOptions: GlobalOptions,
   signal?: AbortSignal,
+  dependencyOverrides: Partial<RunnerDependencies> = {},
 ): Promise<void> {
+  const dependencies = { ...DEFAULT_DEPENDENCIES, ...dependencyOverrides };
+  throwIfAborted(signal);
   assertEndpointAllowed(endpoint.name, { allowCoin: globalOptions.allowCoin, allowWrite: globalOptions.allowWrite });
-  const config = await loadConfig();
-  const tokenResult = await resolveToken(globalOptions.token);
-  if (!tokenResult.token) {
-    throw new AuthenticationError("No Account-SK configured. Run 'sorftime auth login' or set SORFTIME_ACCOUNT_SK.");
-  }
 
+  const config = await dependencies.loadConfig();
+  throwIfAborted(signal);
+  const baseUrl = validateCredentialDestination(
+    globalOptions.baseUrl ?? process.env.SORFTIME_BASE_URL ?? config.baseUrl ?? DEFAULT_BASE_URL,
+  );
   const domain = resolveDomain(globalOptions.domain ?? process.env.SORFTIME_DOMAIN ?? config.domain);
-  const body = await buildRequestBody(endpoint, commandOptions, domain.code);
+  const body = await dependencies.buildRequestBody(endpoint, commandOptions, domain.code, signal);
+  throwIfAborted(signal);
   if (!domain.historyBackfill && requestsHistory(endpoint, body) && !globalOptions.force) {
     throw new ValidationError(
       `${domain.code} does not support historical backfill for this endpoint. Omit historical fields or pass --force to send anyway.`,
     );
   }
 
-  const baseUrl = validateBaseUrl(globalOptions.baseUrl ?? process.env.SORFTIME_BASE_URL ?? config.baseUrl ?? DEFAULT_BASE_URL);
   const timeoutSeconds = globalOptions.timeout ?? process.env.SORFTIME_TIMEOUT;
   const timeoutMs = timeoutSeconds === undefined
     ? config.timeoutMs ?? endpoint.timeoutMs ?? 60_000
@@ -200,26 +248,37 @@ export async function runEndpoint(
   const delayMs = integerOption(globalOptions.pageDelay, 0, "--page-delay", 0, 60_000);
   if (globalOptions.allPages && format === "raw") throw new ValidationError("--all-pages cannot be combined with --output raw.");
 
-  const core = new SorftimeCoreClient({
+  throwIfAborted(signal);
+  const tokenResult = await dependencies.resolveToken();
+  throwIfAborted(signal);
+  if (!tokenResult.token) {
+    throw new AuthenticationError("No Account-SK configured. Run 'sorftime auth login' or set SORFTIME_ACCOUNT_SK.");
+  }
+
+  const core = dependencies.createCoreClient({
     token: tokenResult.token,
     baseUrl,
     timeoutMs,
     retries,
     userAgent: "sorftime-cli/1.0.0",
+    maxResponseBytes: DEFAULT_MAX_RESPONSE_BYTES,
   });
-  const requestBody = (requestBodyValue: JsonObject): Promise<JsonValue> => core.call({
-    endpoint: endpoint.name,
-    marketplace: domain.id,
-    body: requestBodyValue,
-    ...(signal ? { signal } : {}),
-    ...(globalOptions.verbose !== undefined ? { verbose: globalOptions.verbose } : {}),
-    ...(format === "raw" ? { rawResponse: true } : {}),
-    ...(retries > 0 ? { retryApiThrottle: true } : {}),
-  });
+  const requestBody = (requestBodyValue: JsonObject): Promise<JsonValue> => {
+    throwIfAborted(signal);
+    return core.call({
+      endpoint: endpoint.name,
+      marketplace: domain.id,
+      body: requestBodyValue,
+      ...(signal ? { signal } : {}),
+      ...(globalOptions.verbose !== undefined ? { verbose: globalOptions.verbose } : {}),
+      ...(format === "raw" ? { rawResponse: true } : {}),
+    });
+  };
   const result = globalOptions.allPages
     ? await requestAllPages(endpoint, body, requestBody, maxPages, delayMs, signal, globalOptions.verbose)
     : await requestBody(body);
-  await writeOutput(result, {
+  throwIfAborted(signal);
+  await dependencies.writeOutput(result, {
     format,
     ...(globalOptions.dataOnly !== undefined ? { dataOnly: globalOptions.dataOnly } : {}),
     ...(globalOptions.select !== undefined ? { select: globalOptions.select } : {}),

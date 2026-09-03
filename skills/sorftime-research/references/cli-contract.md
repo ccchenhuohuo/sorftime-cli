@@ -49,9 +49,16 @@ Flag names are the documented body parameter in kebab-case: `NodeId` becomes `--
 | `--allow-write` | Permit one call that changes shared account state. Operator decision only. |
 | `--verbose` | Safe diagnostics to stderr; never prints the credential. |
 
+Pagination follows the endpoint's registered result path. It continues after short non-empty pages
+and stops only on an empty array, successful `Data: null`, or `--max-pages`; it never guesses among
+arbitrary arrays. First-page `Data: null` remains null, and a non-empty cap is marked
+`_pagination.maxPagesReached`. Unknown upstream metadata remains untouched and is explicitly labeled
+with `_pagination.upstreamMetadataFromPage` rather than being reinterpreted.
+
 Request bodies for undocumented endpoints go through `--data <json>`, `--data-file <path>`, or
-`--stdin`. `sorftime api call <Endpoint>` is the raw escape hatch for anything not in the registry;
-it is fail-closed on cost and needs `--allow-coin`.
+`--stdin`. `sorftime api call <Endpoint>` accepts registered endpoints only and uses their complete
+registry contract, including required fields, wire encoding, pagination, timeout, and retry risk.
+Unknown names are rejected with guidance to run `sorftime endpoints`.
 
 ## Credentials
 
@@ -63,26 +70,32 @@ sorftime auth logout
 ```
 
 `auth login` always writes the credential to a mode-0600 file; an OS keychain item is only read
-for backwards compatibility with an older release. It is never accepted as a command-line flag and never appears in output, `--verbose` diagnostics, or
-error text. Never ask the user to paste it into the conversation.
+for backwards compatibility with an older release. Existing credential files are rejected if they
+are symlinks, non-regular files, owned by someone else, or group/other-accessible. The credential is
+never accepted as a command-line flag and never appears in output, `--verbose` diagnostics, or error
+text. Never ask the user to paste it into the conversation.
 
 `sorftime config set domain|base-url|timeout|output` holds non-secret defaults. `config set` refuses
 credential-shaped keys.
 
 ## Blocked by policy
 
-41 of 52 endpoints are open. Eleven are refused before any network call:
+41 of 52 endpoints are open. The blocked union has eleven endpoints. Eight have current,
+recurring, or unknown Coin consequences; nine change shared account state; six are in both sets.
+The axes are independent, so the four subscription creators plus `monitor keyword-update` and
+`monitor seller-update` require both `--allow-coin` and `--allow-write`. Single-axis commands still
+require only their matching override. The block is enforced in the runner and therefore also
+applies to `api call`.
 
-- **Coin or undocumented cost** (`--allow-coin`): `product reviews-collect`,
-  `monitor best-seller-create`, `monitor keyword-create`, `monitor seller-create`,
-  `monitor asin-update`, `keyword favorite-list`.
-- **Changes shared account state** (`--allow-write`): `keyword favorite-add`,
-  `keyword favorite-change`, `monitor keyword-update`, `monitor best-seller-delete`,
-  `monitor seller-update`.
+`sorftime endpoints` prints `open`, `COIN`, `WRITE`, or `COIN+WRITE`; JSON discovery returns the
+corresponding `blocked` array. The Skill must never add either override on its own initiative.
 
-The block is enforced in the runner, so it applies to `api call` too. Anything absent from the
-registry is treated as Coin-spending on the same fail-closed path. `sorftime endpoints` prints a
-`STATUS` column of `open`, `COIN`, or `WRITE`.
+## Credential destination
+
+The Account-SK is sent automatically only to the canonical Sorftime origin or a loopback test
+origin. URL userinfo is forbidden. A remote proxy must be approved outside an ordinary query by a
+deployment administrator setting `SORFTIME_TRUSTED_ORIGINS` to a comma-separated exact HTTPS-origin
+allowlist; paths, queries, fragments, and userinfo are not accepted in that allowlist.
 
 ## Upstream status codes
 

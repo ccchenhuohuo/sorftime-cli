@@ -1,6 +1,6 @@
 ---
 name: sorftime-research
-description: Query Amazon marketplace data through the local Sorftime CLI - category Best Sellers and trends, product detail and sales, keyword search volume and rankings, existing monitors, and shared-account quota. Trigger when users mention Sorftime, an ASIN, an Amazon category NodeId, Best Seller rankings, keyword search volume, or Amazon marketplace research. Every call spends the shared request quota, so confirm scope before running; never spend Coin and never change shared account state.
+description: "Query Amazon marketplace data through the local Sorftime CLI - category Best Sellers and trends, product detail and sales, keyword search volume and rankings, existing monitors, and shared-account quota. Trigger when users mention Sorftime, an ASIN, an Amazon category NodeId, Best Seller rankings, keyword search volume, or Amazon marketplace research. Discover billing first: free calls cost zero, while every non-free call needs explicit cost agreement; never enable Coin or shared-state overrides on your own initiative."
 ---
 
 # Sorftime Research
@@ -32,8 +32,14 @@ the billing kind and blocked status of all 52 endpoints (41 open, 11 blocked).
 
 ## Cost is the main constraint
 
-**Every data call spends the account-global monthly request quota.** It is one shared pool for the
-whole team, not a per-person allowance. Before any bulk or exploratory work:
+Before proposing an API command, use `sorftime endpoints --json` or endpoint help to verify its
+current billing. `free` means zero request-quota and zero Coin cost. Any `request`, `coin`,
+`recurring_coin`, or `unknown` call requires you to name the endpoint, marketplace, and estimated
+cost and obtain the user's agreement before executing it. For a batch or workflow, also report and
+confirm the total estimated cost. Request quota is one account-global pool for the whole team, not
+a per-person allowance.
+
+The following free call can show the shared request balance without consuming it:
 
 ```bash
 sorftime account request-stream
@@ -41,8 +47,8 @@ sorftime account request-stream
 
 Rules that keep spend predictable:
 
-1. Confirm scope with the user before spending more than a few requests. Name the endpoint, the
-   marketplace, and the estimated cost.
+1. Do not execute any non-free call until the user agrees to the stated cost. There is no
+   "small enough to skip confirmation" exception.
 2. `--all-pages` multiplies cost by the number of pages. Never combine it with an unbounded
    `--max-pages` on a first attempt; fetch one page, look at the shape, then decide.
 3. Historical ranges are billed per block, not per call. `category best-sellers` costs 10 requests
@@ -54,35 +60,31 @@ Rules that keep spend predictable:
 
 ## What this deployment does not expose
 
-41 of the 52 endpoints are open. The other 11 are refused before any network call.
+41 of the 52 endpoints are open. The blocked union contains 11 endpoints. The two policy axes are
+independent: eight can spend Coin (now or through monitoring they start/change), nine write shared
+state, and six belong to both sets. A dual-axis endpoint needs both overrides.
 
-**Six spend Coin or have an undocumented cost** (`--allow-coin`):
-
-| Blocked | Consequence |
-|---|---|
-| `product reviews-collect` | Review text cannot be collected. Only already-collected reviews are readable. |
-| `monitor best-seller-create` | No new Best Seller / New Releases / Most Wished / Gift Ideas monitors. |
-| `monitor keyword-create` | No new keyword rank monitors. |
-| `monitor seller-create` | No new seller/stock monitors. |
-| `monitor asin-update` | No new daily ASIN subscriptions. |
-| `keyword favorite-list` | Undocumented cost; treated as Coin-spending, fail-closed. |
-
-**Five change shared account state** (`--allow-write`):
-
-| Blocked | Consequence |
-|---|---|
-| `keyword favorite-add` | Cannot add a term to the shared keyword dictionary. |
-| `keyword favorite-change` | Cannot move or delete a dictionary term; its body is undocumented. |
-| `monitor keyword-update` | Cannot modify, pause, or delete a keyword monitor. |
-| `monitor best-seller-delete` | Cannot delete a Best Seller monitor. There is no undo. |
-| `monitor seller-update` | Cannot modify or delete a seller/stock monitor. |
+| Command | Endpoint | Required overrides | Consequence |
+|---|---|---|---|
+| `product reviews-collect` | `ProductReviewsCollection` | `--allow-coin` | Starts Coin-billed review collection. |
+| `keyword favorite-list` | `GetFavoriteKeyword` | `--allow-coin` | Coin cost is undocumented and therefore fails closed. |
+| `keyword favorite-add` | `FavoriteKeyword` | `--allow-write` | Adds a term to the shared keyword dictionary. |
+| `keyword favorite-change` | `ChangeFavoriteKeyword` | `--allow-write` | Moves or deletes a shared dictionary term; body is undocumented. |
+| `monitor keyword-create` | `KeywordBatchSubscription` | `--allow-coin` + `--allow-write` | Creates shared recurring Coin monitoring. |
+| `monitor keyword-update` | `KeywordBatchTaskUpdate` | `--allow-coin` + `--allow-write` | Can start, modify, pause, or delete shared recurring Coin monitoring. |
+| `monitor best-seller-create` | `BestSellerListSubscription` | `--allow-coin` + `--allow-write` | Creates or changes shared recurring Coin monitoring. |
+| `monitor best-seller-delete` | `BestSellerListDelete` | `--allow-write` | Deletes a shared Best Seller monitor with no undo. |
+| `monitor seller-create` | `ProductSellerSubscription` | `--allow-coin` + `--allow-write` | Creates shared recurring Coin seller/stock monitoring. |
+| `monitor seller-update` | `ProductSellerTaskUpdate` | `--allow-coin` + `--allow-write` | Undocumented body can change shared recurring Coin monitoring. |
+| `monitor asin-update` | `ASINSubscription` | `--allow-coin` + `--allow-write` | Adds or removes shared Coin-billed daily subscriptions. |
 
 Everyone using this CLI holds the same account-level credential, so a write is not "my data" - it
 changes what every colleague sees, and the delete has no undo.
 
-When a user asks for one of these, say plainly that it is unavailable and why. Do not silently
-substitute a different endpoint. `--allow-coin` and `--allow-write` exist for a deliberate operator
-decision - never pass either on your own initiative; ask first and let the user decide.
+When a user asks for one of these, say plainly that it is unavailable by default and why. Do not
+silently substitute a different endpoint. `--allow-coin` and `--allow-write` exist for a deliberate
+operator decision; never pass either on your own initiative. For a dual-axis endpoint, separate
+approval for only one consequence does not authorize the other flag.
 
 Reading existing monitors stays free (`monitor best-seller-data`, `monitor keyword-runs`,
 `monitor asin-data`, and their list commands). If no subscription exists, those return nothing,
@@ -90,24 +92,25 @@ and that is "no monitor configured", not "no market activity".
 
 ## Route the request
 
-Prefix every command with the marketplace: `-d us`, `-d de`, `-d jp`, and so on.
+Prefix every marketplace command with the marketplace: `-d us`, `-d de`, `-d jp`, and so on.
 
-| Intent | Command | Cost |
-|---|---|---|
-| Category Top 100 Best Sellers | `sorftime -d us category best-sellers --node-id <id>` | 5 |
-| Best Sellers over a date range | same, plus `--query-start` / `--query-date` | 10 per 3 days |
-| Category structure / NodeId lookup | `sorftime -d us category tree` | 5, large response |
-| Hot products in a category | `sorftime -d us category products --node-id <id>` | 5 |
-| Category-level metric over time | `sorftime -d us category trend --node-id <id> --trend-index <0-15>` | 5 |
-| Product detail, daily price/sales/rank trends | `sorftime -d us product get --asin <ASIN>` | 1-2 per ASIN |
-| Amazon-reported child-ASIN sales | `sorftime -d us product sales-volume --asin <ASIN>` | 1 |
-| Find products by brand/price/BSR/fulfilment | `sorftime -d us product search --query-type <n> --pattern <v>` | 5 |
-| Read already-collected reviews | `sorftime -d us product reviews-list --asin <ASIN>` | 5 |
-| Keyword search volume and CPC | `sorftime -d us keyword get --keyword "<kw>"` | 1 |
-| Keywords for an ASIN or category | `sorftime -d us keyword by-asin --asin <ASIN>` / `keyword by-category --node-id <id>` | 1 |
-| ASIN rank trend under a keyword | `sorftime -d us keyword asin-ranking --keyword "<kw>" --asin <ASIN>` | 2 |
-| Existing monitor results | `sorftime -d us monitor best-seller-data --node-id <id> --best-seller-list-type 5 --query-date "<YYYY-MM-DD HH>"` | free |
-| Quota and Coin balance | `sorftime account request-stream` / `sorftime account coins` | free |
+| Intent | Endpoint | Command | Documented cost |
+|---|---|---|---|
+| Category Top 100 or date-range Best Sellers | `CategoryRequest` | `sorftime -d us category best-sellers --node-id <NodeId>` | `5 realtime; 10 per historical 3-day block` |
+| Category structure / NodeId lookup | `CategoryTree` | `sorftime -d us category tree` | `5 requests` |
+| Hot products in a category | `CategoryProducts` | `sorftime -d us category products --node-id <NodeId>` | `5 requests` |
+| Category-level metric over time | `CategoryTrend` | `sorftime -d us category trend --node-id <NodeId> --trend-index <0-15>` | `5 requests` |
+| Product detail and trends | `ProductRequest` | `sorftime -d us product get --asin <ASIN>` | `1 per ASIN; 2 for trends longer than 15 days` |
+| Amazon-reported child-ASIN sales | `AsinSalesVolume` | `sorftime -d us product sales-volume --asin <ASIN>` | `1 request` |
+| Find products by brand/price/BSR/fulfilment | `ProductQuery` | `sorftime -d us product search --query-type <1-16> --pattern <value>` | `5 requests` |
+| Read already-collected reviews | `ProductReviewsQuery` | `sorftime -d us product reviews-list --asin <ASIN>` | `5 requests` |
+| Keyword search volume and CPC | `KeywordRequest` | `sorftime -d us keyword get --keyword <keyword>` | `1 request` |
+| Keywords for an ASIN | `ASINRequestKeyword` | `sorftime -d us keyword by-asin --asin <ASIN>` | `1 request` |
+| Keywords for a category | `CategoryRequestKeyword` | `sorftime -d us keyword by-category --node-id <NodeId>` | `1 request` |
+| ASIN rank trend under a keyword | `ASINKeywordRanking` | `sorftime -d us keyword asin-ranking --keyword <keyword> --asin <ASIN>` | `2 requests` |
+| Existing Best Seller monitor results | `BestSellerListDataCollect` | `sorftime -d us monitor best-seller-data --node-id <NodeId> --best-seller-list-type 5 --query-date "<YYYY-MM-DD HH>"` | `free` |
+| Shared request balance | `RequestStreamMonth` | `sorftime account request-stream` | `free` |
+| Shared Coin balance | `CoinQuery` | `sorftime account coins` | `free` |
 
 For the exact flag names of any endpoint, read its help rather than guessing:
 `sorftime category best-sellers --help`.

@@ -1,6 +1,7 @@
 # Workflows
 
-Multi-step recipes. Confirm the cost with the user before starting any of them.
+Multi-step recipes. Verify every step's billing in CLI discovery. State free steps as zero cost,
+and obtain agreement for every non-free step and for the workflow total before starting it.
 
 ## Category to product, without guessing an ID
 
@@ -80,7 +81,8 @@ sorftime -d us product similar-results --task-id <id>              # free
 
 ```bash
 sorftime -d us agent product --asin B0XXXXXXXX --type 0   # 25 requests
-sorftime -d us agent status --method 0                    # 1 request
+sorftime -d us agent status --method 0 \
+  --query-start 2026-08-28 --query-end 2026-09-03         # 1 request
 sorftime -d us agent result --task-id <id>                # free
 ```
 
@@ -154,6 +156,9 @@ sorftime -d us category products --node-id 11139610011 \
   --all-pages --max-pages 5 --page-delay 500                          # then bound it
 ```
 
-Always fetch page 1 alone before using `--all-pages`. Set `--max-pages` deliberately; the default
-of 100 is a safety cap, not a recommendation. `--page-delay` reduces the chance of hitting the
-account-global per-minute limit (`501`) and disrupting colleagues.
+Always fetch page 1 alone before using `--all-pages`, but do not infer the total page count from a
+short first page or an undocumented response field. Set `--max-pages` deliberately; the default of
+100 is a safety cap, not a recommendation. Registered pagination continues through short non-empty
+pages and stops on an empty array or successful `Data: null`; hitting the cap is reported as
+`maxPagesReached`. `--page-delay` reduces the chance of hitting the account-global per-minute
+limit (`501`) and disrupting colleagues.

@@ -2,103 +2,118 @@ import { describe, expect, it } from "vitest";
 import { ENDPOINTS } from "../src/endpoints.js";
 import { ValidationError } from "../src/errors.js";
 import {
-  assertEndpointAllowed, billingFor, blockedReason, ENDPOINT_BILLING, ENDPOINT_EFFECT,
-  effectFor, spendsCoin, validateBillingCatalog,
+  assertEndpointAllowed,
+  billingFor,
+  blockedReason,
+  blockedReasons,
+  ENDPOINT_BILLING,
+  ENDPOINT_EFFECT,
+  effectFor,
+  spendsCoin,
+  validateBillingCatalog,
+  validateEffectCatalog,
 } from "../src/policy.js";
 
 const COIN_ENDPOINTS = [
   "ProductReviewsCollection",
+  "GetFavoriteKeyword",
   "KeywordBatchSubscription",
+  "KeywordBatchTaskUpdate",
   "BestSellerListSubscription",
   "ProductSellerSubscription",
+  "ProductSellerTaskUpdate",
   "ASINSubscription",
 ];
 
 const WRITE_ENDPOINTS = [
   "FavoriteKeyword",
   "ChangeFavoriteKeyword",
+  "KeywordBatchSubscription",
   "KeywordBatchTaskUpdate",
+  "BestSellerListSubscription",
   "BestSellerListDelete",
+  "ProductSellerSubscription",
   "ProductSellerTaskUpdate",
+  "ASINSubscription",
 ];
 
-describe("endpoint billing catalog", () => {
-  it("classifies every registered endpoint exactly once", () => {
+const DUAL_EFFECT_ENDPOINTS = [
+  "KeywordBatchSubscription",
+  "KeywordBatchTaskUpdate",
+  "BestSellerListSubscription",
+  "ProductSellerSubscription",
+  "ProductSellerTaskUpdate",
+  "ASINSubscription",
+];
+
+describe("endpoint policy catalogs", () => {
+  it("classifies every registered endpoint exactly once on both axes", () => {
     expect(() => validateBillingCatalog()).not.toThrow();
+    expect(() => validateEffectCatalog()).not.toThrow();
     expect(Object.keys(ENDPOINT_BILLING)).toHaveLength(ENDPOINTS.length);
+    expect(Object.keys(ENDPOINT_EFFECT)).toHaveLength(ENDPOINTS.length);
   });
 
-  it("rejects an endpoint with no classification", () => {
+  it("rejects missing billing or effect classifications instead of inventing defaults", () => {
     expect(() => billingFor("NotAnEndpoint")).toThrow(ValidationError);
+    expect(() => effectFor("NotAnEndpoint")).toThrow(ValidationError);
   });
 
-  it("treats an undocumented cost as Coin-spending", () => {
+  it("treats undocumented and recurring downstream costs as Coin-spending", () => {
     expect(billingFor("GetFavoriteKeyword")).toBe("unknown");
+    expect(billingFor("KeywordBatchTaskUpdate")).toBe("recurring_coin");
+    expect(billingFor("ProductSellerTaskUpdate")).toBe("recurring_coin");
     expect(spendsCoin("unknown")).toBe(true);
-  });
-
-  it("marks exactly the documented Coin and subscription endpoints as spending Coin", () => {
     const spending = Object.keys(ENDPOINT_BILLING).filter((name) => spendsCoin(billingFor(name)));
-    expect(spending.sort()).toEqual([...COIN_ENDPOINTS, "GetFavoriteKeyword"].sort());
-  });
-});
-
-describe("endpoint effect catalog", () => {
-  it("marks exactly the five state-changing endpoints as writes", () => {
-    expect(Object.keys(ENDPOINT_EFFECT).sort()).toEqual([...WRITE_ENDPOINTS].sort());
-    for (const name of WRITE_ENDPOINTS) expect(effectFor(name)).toBe("write");
+    expect(spending.sort()).toEqual([...COIN_ENDPOINTS].sort());
   });
 
-  it("defaults an unlisted endpoint to read", () => {
+  it("classifies all shared-state effects, including subscription creation", () => {
+    const writes = Object.keys(ENDPOINT_EFFECT).filter((name) => effectFor(name) === "write");
+    expect(writes.sort()).toEqual([...WRITE_ENDPOINTS].sort());
     expect(effectFor("CategoryRequest")).toBe("read");
-    expect(effectFor("SomeUndocumentedEndpoint")).toBe("read");
-  });
-
-  it("names only endpoints that exist in the registry", () => {
-    const registered = new Set(ENDPOINTS.map((endpoint) => endpoint.name));
-    for (const name of Object.keys(ENDPOINT_EFFECT)) expect(registered.has(name)).toBe(true);
   });
 });
 
 describe("default exposure policy", () => {
   it("leaves free and request-quota reads open", () => {
     for (const name of ["CategoryRequest", "ProductRequest", "AsinSalesVolume", "BestSellerListDataCollect", "CoinQuery"]) {
-      expect(blockedReason(name)).toBeUndefined();
+      expect(blockedReasons(name)).toEqual([]);
       expect(() => assertEndpointAllowed(name)).not.toThrow();
     }
   });
 
-  it("blocks Coin and recurring-Coin endpoints", () => {
-    for (const name of COIN_ENDPOINTS) {
-      expect(blockedReason(name)?.kind).toBe("coin");
-      expect(() => assertEndpointAllowed(name)).toThrow(/blocked/u);
+  it("requires the complete 2x2 override matrix for every dual-effect endpoint", () => {
+    for (const name of DUAL_EFFECT_ENDPOINTS) {
+      expect(blockedReasons(name).map((reason) => reason.kind)).toEqual(["coin", "write"]);
+      expect(() => assertEndpointAllowed(name)).toThrow(/--allow-coin and --allow-write/u);
+
+      expect(blockedReason(name, { allowCoin: true })?.kind).toBe("write");
+      expect(() => assertEndpointAllowed(name, { allowCoin: true })).toThrow(/--allow-write/u);
+
+      expect(blockedReason(name, { allowWrite: true })?.kind).toBe("coin");
+      expect(() => assertEndpointAllowed(name, { allowWrite: true })).toThrow(/--allow-coin/u);
+
+      expect(blockedReason(name, { allowCoin: true, allowWrite: true })).toBeUndefined();
+      expect(() => assertEndpointAllowed(name, { allowCoin: true, allowWrite: true })).not.toThrow();
     }
   });
 
-  it("blocks endpoints that change shared account state", () => {
-    for (const name of WRITE_ENDPOINTS) {
-      expect(blockedReason(name)?.kind).toBe("write");
-      expect(() => assertEndpointAllowed(name)).toThrow(/state on the shared account/u);
-    }
-  });
-
-  it("explains that a subscription keeps spending every period", () => {
-    expect(() => assertEndpointAllowed("BestSellerListSubscription")).toThrow(/keeps spending Coin every period/u);
-  });
-
-  it("fails closed for an endpoint that reaches the raw escape hatch unclassified", () => {
-    expect(() => assertEndpointAllowed("SomeUndocumentedEndpoint")).toThrow(/undocumented/u);
-  });
-
-  it("keeps the two overrides independent", () => {
-    expect(() => assertEndpointAllowed("BestSellerListDelete", { allowCoin: true })).toThrow(/state on the shared account/u);
-    expect(() => assertEndpointAllowed("ProductReviewsCollection", { allowWrite: true })).toThrow(/spends Coin/u);
+  it("keeps single-axis overrides independent", () => {
+    expect(() => assertEndpointAllowed("BestSellerListDelete", { allowCoin: true })).toThrow(/--allow-write/u);
+    expect(() => assertEndpointAllowed("ProductReviewsCollection", { allowWrite: true })).toThrow(/--allow-coin/u);
     expect(() => assertEndpointAllowed("BestSellerListDelete", { allowWrite: true })).not.toThrow();
     expect(() => assertEndpointAllowed("ProductReviewsCollection", { allowCoin: true })).not.toThrow();
   });
 
-  it("leaves the great majority of the catalog open", () => {
-    const open = ENDPOINTS.filter((endpoint) => blockedReason(endpoint.name) === undefined);
-    expect(open).toHaveLength(ENDPOINTS.length - COIN_ENDPOINTS.length - WRITE_ENDPOINTS.length - 1);
+  it("fails closed on both axes for a missing catalog entry", () => {
+    expect(blockedReasons("SomeUndocumentedEndpoint").map((reason) => reason.kind)).toEqual(["coin", "write"]);
+    expect(() => assertEndpointAllowed("SomeUndocumentedEndpoint", { allowCoin: true })).toThrow(/--allow-write/u);
+  });
+
+  it("keeps exactly the intended union blocked while leaving 41 open", () => {
+    const blocked = ENDPOINTS.filter((endpoint) => blockedReasons(endpoint.name).length > 0);
+    expect(blocked).toHaveLength(11);
+    expect(ENDPOINTS.length - blocked.length).toBe(41);
   });
 });

@@ -12,8 +12,8 @@ Read [AGENTS.md](AGENTS.md) first. It is the shared, authoritative development g
 ## Hard stops
 
 - Do not expose or request credentials.
-- Do not spend Coin and do not change shared account state. Eleven endpoints are blocked in `src/policy.ts`; never pass `--allow-coin` or `--allow-write` without the user saying so.
-- Do not spend request quota without telling the user the cost first. The quota is account-global and shared.
+- Do not spend Coin and do not change shared account state. Eleven endpoints are blocked in `src/policy.ts`; the Coin and write axes overlap, and a dual-axis endpoint requires explicit approval for both flags. Never add either flag on your own.
+- Treat free calls as zero cost. Do not spend request quota without stating the endpoint, marketplace, and estimated cost and obtaining agreement first. The quota is account-global and shared.
 - Do not reintroduce an MCP server, HTTP transport, or per-identity rate limiter.
 - Do not treat missing, unavailable, or blocked data as zero, and do not infer causality from rank or list changes.
 - Do not change the CLI surface without updating the Skill, tests, and user documentation together.

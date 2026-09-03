@@ -155,4 +155,44 @@ describe("parameter keys and CLI mappings", () => {
       "ProductSellerTasks",
     ]);
   });
+
+  it("keeps runtime-verified required fields in the registry used by help and discovery", () => {
+    const keywordPattern = findEndpoint("KeywordQuery")?.parameters.find((parameter) => parameter.key === "Pattern");
+    expect(keywordPattern).toMatchObject({ required: true, sourceOptionalButRuntimeRequired: true });
+
+    const aiParameters = findEndpoint("AIResultQuery")?.parameters ?? [];
+    for (const key of ["QueryStart", "QueryEnd"]) {
+      expect(aiParameters.find((parameter) => parameter.key === key)).toMatchObject({
+        required: true,
+        sourceOptionalButRuntimeRequired: true,
+      });
+    }
+
+    expect(findEndpoint("KeywordProductRanking")?.parameters.find((parameter) => parameter.key === "Month"))
+      .toMatchObject({ requiredWhen: { marketplaces: ["US"] } });
+  });
+
+  it("registers history behavior rather than maintaining a runner-side endpoint table", () => {
+    expect(findEndpoint("CategoryTrend")?.history).toEqual({ mode: "always" });
+    expect(findEndpoint("KeywordSearchResultTrend")?.history).toEqual({ mode: "always" });
+    expect(findEndpoint("ProductRequest")?.history).toEqual({
+      mode: "when-fields-present",
+      fields: ["QueryTrendStartDt", "QueryTrendEndDt"],
+    });
+  });
+
+  it("gives every auto-paginated endpoint an explicit row path and safe terminal rule", () => {
+    const paginated = ENDPOINTS.filter((item) => item.pagination);
+    expect(paginated.length).toBeGreaterThan(0);
+    for (const item of paginated) {
+      expect(item.pagination?.termination).toBe("empty-page");
+      expect(item.pagination?.rowPath).toBeDefined();
+    }
+    expect(findEndpoint("CategoryProducts")?.pagination?.rowPath).toEqual(["Data", "Products"]);
+    expect(findEndpoint("KeywordQuery")?.pagination?.rowPath).toEqual(["Data"]);
+  });
+
+  it("retains the measured CategoryTree timeout in the registry", () => {
+    expect(findEndpoint("CategoryTree")?.timeoutMs).toBe(900_000);
+  });
 });

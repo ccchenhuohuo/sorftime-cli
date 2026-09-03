@@ -16,6 +16,13 @@ export interface ParameterSpec {
   type: ParameterType;
   description: string;
   required?: boolean;
+  /** The upstream document says optional, but live validation requires the value. */
+  sourceOptionalButRuntimeRequired?: boolean;
+  /** A marketplace-specific required rule enforced from this registry entry. */
+  requiredWhen?: {
+    marketplaces: readonly string[];
+    reason: string;
+  };
   variadic?: boolean;
   /**
    * Wire encoding for a `string[]` parameter. Defaults to a JSON array.
@@ -40,12 +47,27 @@ export interface EndpointSpec {
   timeoutMs?: number;
   undocumentedParameters?: boolean;
   unsafeRetry?: boolean;
+  history?:
+    | { mode: "always" }
+    | { mode: "when-fields-present"; fields: readonly string[] };
+  dateRanges?: readonly {
+    startKey: string;
+    endKey: string;
+    maxCalendarDays?: number;
+  }[];
   pagination?: {
     pageKey: "Page" | "PageIndex";
     pageSizeKey?: "PageSize";
     defaultPageSize: number;
+    /** Exact, case-insensitive path to the result rows. An empty path means a root array. */
+    rowPath: readonly string[];
+    /** Empty/null pages are the only generic terminal signal we can prove safely. */
+    termination: "empty-page";
   };
 }
+
+export const OUTPUT_FORMATS = ["json", "jsonl", "yaml", "csv", "table", "raw"] as const;
+export type OutputFormat = typeof OUTPUT_FORMATS[number];
 
 export interface StoredConfig {
   domain?: string | number;
@@ -53,8 +75,6 @@ export interface StoredConfig {
   timeoutMs?: number;
   output?: OutputFormat;
 }
-
-export type OutputFormat = "json" | "jsonl" | "yaml" | "csv" | "table" | "raw";
 
 export interface ApiRequestOptions {
   endpoint: string;
@@ -67,14 +87,12 @@ export interface ApiRequestOptions {
   signal?: AbortSignal;
   verbose?: boolean;
   rawResponse?: boolean;
-  retryApiThrottle?: boolean;
   userAgent?: string;
   maxResponseBytes?: number;
 }
 
 export interface GlobalOptions {
   domain?: string;
-  token?: string;
   baseUrl?: string;
   timeout?: string;
   retries?: string;

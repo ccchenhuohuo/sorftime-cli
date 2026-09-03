@@ -18,7 +18,7 @@ sorftime endpoints --group keyword
 sorftime category best-sellers --help
 ```
 
-理由：注册表会漂移，Skill 里的副本会过期，而过期的副本比没有更危险。`sorftime endpoints --json` 输出里带 `billing` 和 `blocked` 字段，Skill 据此判断可用性，而不是靠记忆。
+理由：注册表会漂移，Skill 里的副本会过期，而过期的副本比没有更危险。`sorftime endpoints --json` 输出里带 `billing`、`effect` 和 `blocked` 数组，Skill 据此识别独立策略轴，而不是靠记忆。
 
 ## 需要同步改动的边界
 
@@ -31,16 +31,20 @@ sorftime category best-sellers --help
 | 全局 flag | `src/cli.ts` / `src/types.ts` → `references/cli-contract.md` |
 | 口径纪律 | `references/interpretation-boundaries.md` → `evals/evals.json` |
 
-`test/skill-contract.test.ts` 是这条纪律的门禁：它从 `src/policy.ts` 反查所有被拦端点，逐个断言 Skill 文本里提到了对应的 CLI 命令。新增一个被拦端点而不更新 Skill，测试会红。它同时断言 Skill 文本里不出现 `MCP` 字样，防止旧形态回流。
+`test/skill-contract.test.ts` 是这条纪律的语义门禁：它解析 Skill 的路由表和策略表，逐行把
+endpoint、CLI 命令、必填 flag、成本文本、blocked 轴与所需 override 对回
+`createProgram()`、registry 和 policy；双属性端点必须同时列出两个 flag，任何可执行示例都不得
+主动携带 override。eval 的 `expected_output` 也逐条检查站点澄清、成本确认、分页不得推断、
+限流停止和凭据边界等语义，而不再只统计条目数量。测试仍禁止旧 MCP 形态回流。
 
 ## 花钱前的确认
 
 CLI 不做交互式确认（它要能在脚本里跑），所以"确认成本"这一步落在 Skill：
 
-1. 报出端点、站点、预估 requests；
+1. 先从 CLI discovery 核对 billing；free 明示为 0，任何非 free 调用都报出端点、站点、预估成本并取得同意；
 2. 历史区间要把块数算出来，不能只说"要查一个月"；
 3. `--all-pages` 必须先取第 1 页看形状，再定 `--max-pages`；
-4. `--allow-coin`、`--allow-write` 和 `--force` 永远由用户拍板，Skill 不自作主张。
+4. `--allow-coin`、`--allow-write` 和 `--force` 永远由用户拍板，Skill 不自作主张；双属性端点只批准一个轴时仍不得执行。
 
 ## 已知的不对称
 

@@ -19,30 +19,28 @@ flowchart LR
 
 **52 个端点开放 41 个**，其余 11 个在发出任何网络请求之前就被拒绝。
 
-**6 个花 Coin 或成本未知**（`--allow-coin` 单次放行）：
+两个分类轴独立且允许重叠：**8 个**端点可能花 Coin（本次、未来周期或成本未知），**9 个**
+端点会改动共享账号状态，其中 **6 个同时属于两类**；并集仍是 11 个。双属性端点必须同时
+提供 `--allow-coin` 与 `--allow-write`，只给一个仍会在请求前被拦。
 
-| 被拦命令 | 端点 | 计费 |
-|---|---|---|
-| `product reviews-collect` | `ProductReviewsCollection` | Coin |
-| `monitor best-seller-create` | `BestSellerListSubscription` | 周期性 Coin |
-| `monitor keyword-create` | `KeywordBatchSubscription` | 周期性 Coin |
-| `monitor seller-create` | `ProductSellerSubscription` | 周期性 Coin |
-| `monitor asin-update` | `ASINSubscription` | 周期性 Coin |
-| `keyword favorite-list` | `GetFavoriteKeyword` | 文档未标明成本，失败关闭 |
-
-**5 个会改动共享账号状态**（`--allow-write` 单次放行）：
-
-| 被拦命令 | 端点 | 后果 |
-|---|---|---|
-| `keyword favorite-add` | `FavoriteKeyword` | 写入共享关键词词库 |
-| `keyword favorite-change` | `ChangeFavoriteKeyword` | 移动或删除词库条目；请求体无文档 |
-| `monitor keyword-update` | `KeywordBatchTaskUpdate` | `Update=9` 即删除关键词监控 |
-| `monitor best-seller-delete` | `BestSellerListDelete` | 删除榜单监控，**不可恢复** |
-| `monitor seller-update` | `ProductSellerTaskUpdate` | 修改或删除卖家/库存监控 |
+| 被拦命令 | 端点 | 单次放行所需 flag | 后果 |
+|---|---|---|---|
+| `product reviews-collect` | `ProductReviewsCollection` | `--allow-coin` | Coin 计费的评论采集 |
+| `keyword favorite-list` | `GetFavoriteKeyword` | `--allow-coin` | 成本未标明，按 Coin 失败关闭 |
+| `keyword favorite-add` | `FavoriteKeyword` | `--allow-write` | 写入共享关键词词库 |
+| `keyword favorite-change` | `ChangeFavoriteKeyword` | `--allow-write` | 移动或删除共享词库条目；请求体无文档 |
+| `monitor keyword-create` | `KeywordBatchSubscription` | `--allow-coin` + `--allow-write` | 新建共享的周期性 Coin 监控 |
+| `monitor keyword-update` | `KeywordBatchTaskUpdate` | `--allow-coin` + `--allow-write` | 可启动、修改、暂停或删除周期性 Coin 监控 |
+| `monitor best-seller-create` | `BestSellerListSubscription` | `--allow-coin` + `--allow-write` | 新建或修改共享的周期性 Coin 监控 |
+| `monitor best-seller-delete` | `BestSellerListDelete` | `--allow-write` | 删除榜单监控，**不可恢复** |
+| `monitor seller-create` | `ProductSellerSubscription` | `--allow-coin` + `--allow-write` | 新建共享的周期性 Coin 卖家/库存监控 |
+| `monitor seller-update` | `ProductSellerTaskUpdate` | `--allow-coin` + `--allow-write` | 请求体无文档，按最坏后果处理 |
+| `monitor asin-update` | `ASINSubscription` | `--allow-coin` + `--allow-write` | 增删共享的 Coin 计费日更订阅 |
 
 用这个 CLI 的人拿的是同一把账号级凭据，所以写操作不是「改我自己的数据」，是改所有同事看到的东西。
 
-两道闸都在 `runner.ts` 里，因此对 `sorftime api call` 同样生效；注册表里没有的端点一律按「成本未知」走失败关闭路径。
+两道闸都在 `runner.ts` 里，因此对 `sorftime api call` 同样生效。`api call` 只接受注册表中的
+端点；未知名称会直接拒绝并提示运行 `sorftime endpoints`。
 
 分类见 [`src/policy.ts`](src/policy.ts)，`sorftime endpoints` 会把 `BILLING` 和 `STATUS` 两列一起打出来。
 
@@ -107,6 +105,10 @@ sorftime auth status
 ```
 
 Login stores the credential in `credentials.json` in the CLI config directory with mode `0600`; the directory is created with mode `0700`. This avoids placing the credential in process arguments. Existing credentials from older releases in macOS Keychain remain readable and can be removed with `auth logout`.
+
+读取已有凭据文件时也会强制检查安全边界：必须是当前用户拥有的普通文件、不得是符号链接，
+并且在 POSIX 平台不能给 group/other 任何权限；例如复制后变成 `0644` 会被拒绝并提示
+`chmod 600`，错误消息不会包含凭据值。
 
 For scripts, pass the credential through standard input rather than a command-line argument:
 
@@ -174,7 +176,7 @@ Utility commands:
 | `config list/path/get/set/unset` | Manage non-secret defaults |
 | `domains` | List 14 marketplace IDs, codes, aliases, and history support |
 | `endpoints [--group GROUP] [--json]` | List the complete 52-endpoint catalog and costs |
-| `api call <endpoint>` | Call a documented or future endpoint with a raw JSON object |
+| `api call <endpoint>` | Call a registered endpoint with a raw JSON object while retaining its full contract |
 
 Typed API commands are organized into six groups:
 
@@ -187,7 +189,7 @@ Typed API commands are organized into six groups:
 | `agent` | 4 | `product`, `category`, `status`, `result` |
 | `account` | 3 | `coins`, `coin-stream`, `request-stream` |
 
-`sorftime endpoints --json` is the authoritative machine-readable inventory. It includes the exact API endpoint name, group, CLI command, cost text, parameters, special timeout, pagination support, retry risk, and whether the source documentation omitted the body schema.
+`sorftime endpoints --json` is the authoritative machine-readable inventory. It includes the exact API endpoint name, group, CLI command, cost text, parameters, history/pagination contracts, special timeout, retry risk, effect, and a `blocked` array that can contain both `coin` and `write`.
 
 ## Typed and raw JSON input
 
@@ -239,7 +241,13 @@ sorftime --domain us api call ProductQuery --data-file ./request.json
 
 Raw input must be a JSON object. `--data-file` and `--stdin` are limited to 25 MiB. Typed flags may be combined with a raw body; typed values overwrite fields with the same exact API key.
 
-`api call` accepts case-insensitive endpoint names and unambiguous CLI command names. If a command name exists in more than one group (such as `get`), use the exact API endpoint name. An unknown endpoint name must start with a letter and contain only letters and digits.
+合并完成后，typed 与 raw 值统一按同一份 endpoint spec 做类型、枚举、日期、required 非空语义和
+wire 编码；例如 `ProductRequest.ASIN` 无论从 typed flag、`--data`、`--data-file`、`--stdin`
+还是 `api call` 输入数组，线上 body 都是同一个逗号分隔字符串，空数组一律本地拒绝。
+
+`api call` 接受注册表内大小写不敏感的 endpoint 名和无歧义的 CLI command 名，并直接复用完整
+`EndpointSpec`，所以不会丢失 timeout、pagination、parameters、wire 或 `unsafeRetry`。如果一个
+command 名在多个 group 中重复（例如 `get`），请使用完整 API endpoint 名；未知端点不允许调用。
 
 ## Configuration and precedence
 
@@ -265,7 +273,7 @@ Supported config keys are `domain`, `base-url`, `timeout`, and `output`. Attempt
 | Retries | `--retries` → `SORFTIME_RETRIES` | `0` |
 | Output | `--output` → `SORFTIME_OUTPUT` → config `output` | `table` on a TTY, otherwise `json` |
 
-`CategoryTree` has a 300-second endpoint default and image search has a 120-second default, unless a higher-precedence timeout overrides it. Valid timeouts are 1–3600 seconds; retry count is 0–5.
+`CategoryTree` has a 900-second endpoint default and image search has a 120-second default, unless a higher-precedence timeout overrides it. Valid timeouts are 1–3600 seconds; retry count is 0–5.
 
 The config directory is selected in this order:
 
@@ -273,13 +281,19 @@ The config directory is selected in this order:
 2. `$XDG_CONFIG_HOME/sorftime`
 3. `~/.config/sorftime`
 
-The canonical API base URL is already configured. Override it only for a trusted proxy or local test server; see [Security](#security).
+The canonical API base URL is already configured. Loopback test origins are accepted directly. A remote
+proxy also needs its exact HTTPS origin in the deployment-level `SORFTIME_TRUSTED_ORIGINS` allowlist;
+setting only `--base-url`, `SORFTIME_BASE_URL`, or config is intentionally insufficient. See [Security](#security).
 
 ## Marketplaces and history guardrails
 
 `--domain` accepts the numeric ID, two-letter code, or a listed alias. Use `sorftime domains` for the complete mapping.
 
-India, UAE, Australia, Brazil, and Saudi Arabia are documented as not supporting history backfill. For those marketplaces the CLI blocks historical fields on `CategoryRequest`, `ProductRequest`, `AsinSalesVolume`, `KeywordProductRanking`, and `ASINKeywordRanking`.
+India, UAE, Australia, Brazil, and Saudi Arabia are documented as not supporting history backfill. History
+behavior is part of each endpoint's registry entry rather than a runner-side name table. For those
+marketplaces the CLI blocks historical fields on `CategoryRequest`, `ProductRequest`, `AsinSalesVolume`,
+`KeywordProductRanking`, and `ASINKeywordRanking`; it always guards the inherently historical
+`CategoryTrend` and `KeywordSearchResultTrend`, including when their optional range fields are omitted.
 
 `--force` bypasses only this client-side marketplace history guard. It does not bypass server authorization, required parameters, cost, or quota, and it is not a confirmation or dry-run mechanism.
 
@@ -310,19 +324,32 @@ sorftime --output yaml --select Data.Items product search \
 sorftime --output json --output-file ./category-tree.json category tree
 
 # A path of "-" writes to stdout.
-sorftime --output csv --data-only --output-file - keyword list
+sorftime --output csv --data-only --output-file - keyword list \
+  --pattern '{"RankCondition":[1,1000]}'
 ```
 
-`--select` is case-sensitive and runs after `--data-only`. A missing path is a validation error. Use JSON or an output file for large responses; table display is intentionally abbreviated.
+`--select` is case-sensitive and runs after `--data-only`. A missing path is a validation error.
+`--data-only` likewise rejects an envelope with no `Data` field, while preserving present values such as
+`null`, `[]`, and numeric `0` as three distinct results. Use JSON or an output file for large responses;
+table display is intentionally abbreviated.
 
 Documented list endpoints support bounded automatic pagination:
 
 ```bash
 sorftime --all-pages --max-pages 50 --page-delay 250 \
-  --output json --data-only keyword list --page-size 200
+  --output json --data-only keyword list \
+  --pattern '{"RankCondition":[1,1000]}' --page-size 200
 ```
 
-`--all-pages` starts at the supplied `Page`/`PageIndex` (or 1), stops after a short page, and adds `_pagination` metadata when retaining the response envelope. `--max-pages` defaults to 100 and `--page-delay` is milliseconds. Endpoints whose result-array or page-size behavior is not documented reject `--all-pages` instead of guessing. Exact raw output cannot be combined with pagination.
+`--all-pages` starts at the supplied `Page`/`PageIndex` (or 1) and follows the endpoint's explicit
+registry `rowPath`; it never chooses among arrays by an English field-name guess. A short non-empty page
+is not proof of completion, so pagination continues until an empty array, successful `Data: null`, or the
+hard cap. First-page `Data: null` is returned unchanged; it is not rewritten to `[]` or `0`. When retaining
+an envelope, `_pagination.maxPagesReached` tells whether a non-empty result hit the cap. `--max-pages`
+defaults to 100 and `--page-delay` is milliseconds. Unknown upstream metadata is preserved rather than
+reinterpreted; `_pagination.upstreamMetadataFromPage` identifies the source page for those untouched fields.
+A missing path or changed page shape fails explicitly.
+Exact raw output cannot be combined with pagination.
 
 Successful API data goes to stdout. Errors and `--verbose` diagnostics go to stderr, making stdout safe to pipe when the selected output format is machine-readable.
 
@@ -344,13 +371,17 @@ HTTP errors and Sorftime business errors are separate: for example, an HTTP 401 
 
 ## Retries, quota, and side effects
 
-Retries default to zero because every Sorftime endpoint is invoked with POST, including reads. `--retries N` retries transport failures, HTTP 408/429/5xx responses, and Sorftime's per-minute throttle code 501 with exponential backoff. A valid HTTP `Retry-After` header is honored up to 30 seconds. Other business errors and other HTTP 4xx responses are not retried.
+Retries default to zero because every Sorftime endpoint is invoked with POST, including reads. `--retries N`
+retries transport failures and HTTP 408/429/5xx responses with exponential backoff. A valid HTTP
+`Retry-After` header is honored up to 30 seconds. Sorftime business-envelope codes are a separate layer and
+are never retried: in particular, account-global `500`, `501`, and `694` are reported once and execution stops.
+Other HTTP 4xx responses are not retried either.
 
 ```bash
 sorftime --retries 2 account coins
 ```
 
-Only enable retries when duplicate processing is acceptable. If the server completed a request but the response was lost, retrying may consume quota again, start a second task, repeat an update, or repeat a delete. The CLI displays documented cost in command help and `endpoints`, but it does not currently estimate the final bill, prompt for confirmation, or provide a dry-run mode. Mutating and paid commands execute immediately.
+Only enable retries when duplicate processing is acceptable. If the server completed a request but the response was lost, retrying may consume quota again, start a second task, repeat an update, or repeat a delete. The CLI displays documented cost in command help and `endpoints`, but it does not currently estimate the final bill, prompt for confirmation, or provide a dry-run mode. Allowed request-quota calls execute immediately; a policy-blocked call executes only when every applicable single-call override is present.
 
 For known task-creating and mutating endpoints, `--retries` is rejected unless you also pass `--retry-unsafe`. That second flag is an explicit acknowledgment that duplicate state changes or charges are possible.
 
@@ -374,7 +405,7 @@ The CLI deliberately avoids inventing undocumented API behavior:
 - `ProductQuery` documents multi-condition mode without defining its object structure. Use raw JSON for that mode.
 - `KeywordQuery.Pattern` is only partially documented. It is exposed as a JSON value rather than a guessed schema.
 - Response envelopes vary in capitalization and most endpoint response schemas are absent. The client performs tolerant envelope checks, preserves unknown fields, and offers `--output raw`/JSON output.
-- Pagination metadata is mostly undocumented. Automatic pagination is therefore limited to endpoints with a documented page size and stops on short pages; use `--max-pages` as a hard safety cap.
+- Pagination metadata is mostly undocumented. Automatic pagination is therefore limited to endpoints with an explicit registry row path, treats only an empty/null page as the generic terminal signal, and uses `--max-pages` as a hard safety cap. It does not guess from a short page or arbitrary array names.
 - Asynchronous APIs use different status lookup keys and incomplete status schemas. Use each family's explicit start, status, and result commands; there is no generic wait/poll command.
 - File export/download behavior is not documented. Image search accepts local input, but returned image URLs and AI HTML/Markdown are not downloaded automatically.
 
@@ -390,11 +421,12 @@ Consult `sorftime <group> <command> --help` and `sorftime endpoints --json` for 
 - 每台装了 CLI 的机器上都有一份 Account-SK。Sorftime 的鉴权只有账号级 Account-SK，**没有按人分发的子令牌**，所以分发一次就等于把账号级凭据复制一份；谁泄漏的无法从上游区分。轮换凭据必须所有人同时换。
 - 同样地，配额和限流都是账号全局的，本地 CLI 没有跨机器的用量视图。谁花了多少，只能靠 `sorftime account request-stream` 看总量，看不到分人明细。
 - Prefer `sorftime auth login` or an injected environment secret. Never include a real credential in shell arguments, committed files, logs, test fixtures, or support bundles.
-- `--verbose` never prints the credential and replaces image payloads with a length marker. Raw request fields other than image data are printed, so do not place unrelated secrets in a request body when verbose mode is enabled.
-- Custom `--base-url`, `SORFTIME_BASE_URL`, and config `base-url` values receive the credential. Use only endpoints you control and trust. The CLI requires HTTPS, except that plain HTTP is allowed for `localhost`, `127.0.0.1`, and `::1` testing.
+- `--verbose` recursively redacts image bodies, secret-shaped keys, and any occurrence of the actual loaded credential. Non-secret raw fields are still diagnostic output, so do not place unrelated sensitive business data in them when verbose mode is enabled.
+- URL userinfo is always rejected. The credential is sent automatically only to the canonical Sorftime origin or loopback (`localhost`, `127.0.0.1`, `[::1]`; HTTP is loopback-only). A remote proxy requires a deployment administrator to set `SORFTIME_TRUSTED_ORIGINS` to its exact HTTPS origin, or the CLI rejects before credential resolution and fetch. The allowlist accepts comma-separated origins only—no paths, queries, fragments, or userinfo.
 - Avoid enabling retries for paid or mutating calls unless duplicate execution is safe.
 - Keep output files private: product, keyword, review, seller, usage, and AI results may contain commercially sensitive data.
-- Credential and config files are written atomically with restrictive permissions, but environment variables may still be visible to same-user processes or CI logs depending on the operating system and runner.
+- Credential and config files are written atomically with restrictive permissions; credential files are also checked on every read. Environment variables may still be visible to same-user processes or CI logs depending on the operating system and runner.
+- Parsed API response bodies are capped at 100 MiB. This leaves headroom above the measured 10.4 MiB CategoryTree response while bounding memory use.
 
 ## 项目结构
 
@@ -402,7 +434,7 @@ Consult `sorftime <group> <command> --help` and `sorftime endpoints --json` for 
 .
 ├── src/cli.ts + src/runner.ts   # 命令表与执行编排
 ├── src/endpoints.ts             # 全部 52 个端点与参数注册表
-├── src/billing.ts               # 计费分类与 Coin 硬闸
+├── src/policy.ts                # 穷举计费/共享状态分类与双轴硬闸
 ├── src/service.ts               # 确定性 API 执行核心
 ├── src/client.ts                # HTTP/信封/超时/体积处理
 ├── skills/sorftime-research/    # AI 路由与解释 Skill

@@ -9,8 +9,9 @@ import { DOMAINS, resolveDomain } from "./domains.js";
 import { ENDPOINTS, findEndpoint } from "./endpoints.js";
 import { AuthenticationError, CliError, ValidationError } from "./errors.js";
 import { optionName } from "./input.js";
-import { billingFor, blockedReason, effectFor } from "./policy.js";
+import { billingFor, blockedReasons, effectFor } from "./policy.js";
 import { runEndpoint } from "./runner.js";
+import { OUTPUT_FORMATS } from "./types.js";
 import type { EndpointSpec, GlobalOptions, OutputFormat, StoredConfig } from "./types.js";
 
 const VERSION = "1.0.0";
@@ -28,6 +29,8 @@ function optionForParameter(parameter: EndpointSpec["parameters"][number]): Opti
   const details = [
     parameter.description,
     parameter.required ? "required" : undefined,
+    parameter.requiredWhen ? `required on ${parameter.requiredWhen.marketplaces.join(", ")}` : undefined,
+    parameter.sourceOptionalButRuntimeRequired ? "runtime-verified requirement" : undefined,
     parameter.choices ? `choices: ${parameter.choices.join(", ")}` : undefined,
   ].filter(Boolean).join("; ");
   return new Option(flag, details);
@@ -38,10 +41,14 @@ function globalOptions(command: Command): GlobalOptions {
 }
 
 function addEndpointCommand(parent: Command, endpoint: EndpointSpec): void {
-  const blocked = blockedReason(endpoint.name);
+  const blocked = blockedReasons(endpoint.name);
+  const requiredFlags = blocked.map((reason) => reason.kind === "coin" ? "--allow-coin" : "--allow-write");
+  const blockedLabel = blocked.length > 0
+    ? ` [BLOCKED: ${blocked.map((reason) => reason.detail).join("; ")}; needs ${requiredFlags.join(" + ")}]`
+    : "";
   const command = parent
     .command(endpoint.command)
-    .description(`${endpoint.summary} [cost: ${endpoint.cost}]${blocked ? ` [BLOCKED: ${blocked.detail}; needs --allow-${blocked.kind === "coin" ? "coin" : "write"}]` : ""}`)
+    .description(`${endpoint.summary} [cost: ${endpoint.cost}]${blockedLabel}`)
     .summary(endpoint.summary);
   for (const parameter of endpoint.parameters) command.addOption(optionForParameter(parameter));
   addBodyOptions(command);
@@ -70,8 +77,10 @@ function validateConfigValue(key: string, value: string): StoredConfig {
     case "domain": return { domain: resolveDomain(value).code.toLowerCase() };
     case "base-url": {
       let url: URL;
-      try { url = new URL(value); } catch { throw new ValidationError(`Invalid base URL '${value}'.`); }
+      try { url = new URL(value); } catch { throw new ValidationError("Invalid base URL."); }
       if (url.protocol !== "https:") throw new ValidationError("Configured base URL must use HTTPS.");
+      if (url.username || url.password) throw new ValidationError("Configured base URL must not contain userinfo.");
+      if (url.search || url.hash) throw new ValidationError("Configured base URL must not contain a query or fragment.");
       return { baseUrl: value.endsWith("/") ? value : `${value}/` };
     }
     case "timeout": {
@@ -80,8 +89,7 @@ function validateConfigValue(key: string, value: string): StoredConfig {
       return { timeoutMs: seconds * 1000 };
     }
     case "output": {
-      const formats: OutputFormat[] = ["json", "jsonl", "yaml", "csv", "table", "raw"];
-      if (!formats.includes(value as OutputFormat)) throw new ValidationError(`output must be one of: ${formats.join(", ")}.`);
+      if (!OUTPUT_FORMATS.includes(value as OutputFormat)) throw new ValidationError(`output must be one of: ${OUTPUT_FORMATS.join(", ")}.`);
       return { output: value as OutputFormat };
     }
     case "token": case "account-sk": case "authorization":
@@ -168,20 +176,19 @@ function installUtilityCommands(program: Command): void {
       if (options.json) {
         const rows = endpoints.map((item) => ({
           ...item, billing: billingFor(item.name), effect: effectFor(item.name),
-          blocked: blockedReason(item.name)?.kind ?? null,
+          blocked: blockedReasons(item.name).map((reason) => reason.kind),
         }));
         process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
       } else {
         const lines = endpoints.map((item) => {
-          const blockedKind = blockedReason(item.name)?.kind;
-          const status = blockedKind === "coin" ? "COIN" : blockedKind === "write" ? "WRITE" : "open";
-          return `${item.name.padEnd(45)} ${item.group.padEnd(9)} ${item.command.padEnd(22)} ${billingFor(item.name).padEnd(15)} ${status.padEnd(7)} ${item.cost}`;
+          const status = blockedReasons(item.name).map((reason) => reason.kind.toUpperCase()).join("+") || "open";
+          return `${item.name.padEnd(45)} ${item.group.padEnd(9)} ${item.command.padEnd(22)} ${billingFor(item.name).padEnd(15)} ${status.padEnd(10)} ${item.cost}`;
         });
-        const open = endpoints.filter((item) => blockedReason(item.name) === undefined).length;
+        const open = endpoints.filter((item) => blockedReasons(item.name).length === 0).length;
         process.stdout.write(
-          `ENDPOINT                                      GROUP     COMMAND                BILLING         STATUS  COST\n${lines.join("\n")}\n`
-          + `\n${open}/${endpoints.length} open. COIN = spends Coin or has an undocumented cost (--allow-coin). `
-          + "WRITE = changes shared account state (--allow-write).\n",
+          `ENDPOINT                                      GROUP     COMMAND                BILLING         STATUS      COST\n${lines.join("\n")}\n`
+          + `\n${open}/${endpoints.length} open. COIN and WRITE are independent; COIN+WRITE requires both single-call overrides. `
+          + "COIN = spends Coin, can start recurring Coin use, or has undocumented cost. WRITE = changes shared account state.\n",
         );
       }
     });
@@ -190,23 +197,18 @@ function installUtilityCommands(program: Command): void {
   const call = api.command("call <endpoint>").description("Call an endpoint with a raw JSON body");
   addBodyOptions(call);
   call.action(async (endpointName: string, _options: unknown, actionCommand: Command) => {
-    const known = findEndpoint(endpointName);
-    const commandMatches = ENDPOINTS.filter((endpoint) => endpoint.command.toLowerCase() === endpointName.toLowerCase());
-    if (!known && commandMatches.length > 1) {
-      throw new ValidationError(`Ambiguous command name '${endpointName}'. Use the exact API endpoint name instead.`);
-    }
-    const endpoint: EndpointSpec = {
-      name: known?.name ?? endpointName,
-      group: known?.group ?? "account",
-      command: "call",
-      summary: known?.summary ?? "Raw API call",
-      cost: known?.cost ?? "unknown",
-      parameters: [],
-      undocumentedParameters: true,
-      unsafeRetry: known?.unsafeRetry ?? !known,
-    };
-    await runEndpoint(endpoint, actionCommand.opts(), globalOptions(actionCommand), rootAbort.signal);
+    await runEndpoint(resolveApiCallEndpoint(endpointName), actionCommand.opts(), globalOptions(actionCommand), rootAbort.signal);
   });
+}
+
+export function resolveApiCallEndpoint(endpointName: string): EndpointSpec {
+  const known = findEndpoint(endpointName);
+  if (known) return known;
+  const commandMatches = ENDPOINTS.filter((endpoint) => endpoint.command.toLowerCase() === endpointName.toLowerCase());
+  if (commandMatches.length > 1) {
+    throw new ValidationError(`Ambiguous command name '${endpointName}'. Use the exact API endpoint name instead.`);
+  }
+  throw new ValidationError(`Unknown Sorftime endpoint '${endpointName}'. Run 'sorftime endpoints' to list registered endpoints.`);
 }
 
 export function createProgram(): Command {
@@ -218,14 +220,14 @@ export function createProgram(): Command {
     .showSuggestionAfterError()
     .showHelpAfterError()
     .option("-d, --domain <domain>", "Amazon marketplace ID/code (default: us)")
-    .option("--base-url <url>", "API base URL (default: canonical Sorftime API)")
+    .option("--base-url <url>", "API base URL (remote origins also require deployment trust)")
     .option("--timeout <seconds>", "Request timeout in seconds (1-3600)")
     .option("--retries <count>", "Retry transient transport/HTTP failures (0-5; default: 0)")
     .option("--retry-unsafe", "Allow requested retries for task-creating or mutating endpoints")
     .option("--all-pages", "Fetch and aggregate every page for supported list endpoints")
     .option("--max-pages <count>", "Safety cap for --all-pages (1-1000; default: 100)")
     .option("--page-delay <milliseconds>", "Delay between pages (0-60000; default: 0)")
-    .addOption(new Option("-o, --output <format>", "Output format").choices(["json", "jsonl", "yaml", "csv", "table", "raw"]))
+    .addOption(new Option("-o, --output <format>", "Output format").choices([...OUTPUT_FORMATS]))
     .option("--data-only", "Output only the Data/data field from the response envelope")
     .option("--select <path>", "Select a dot-separated response path")
     .option("--output-file <path>", "Write output atomically to a file")
@@ -256,6 +258,10 @@ export async function runCli(argv = process.argv): Promise<void> {
   try {
     await program.parseAsync(argv);
   } catch (error) {
+    if (rootAbort.signal.aborted) {
+      process.exitCode = 130;
+      return;
+    }
     if (error instanceof CommanderError) {
       process.exitCode = error.exitCode;
       return;

@@ -18,6 +18,18 @@ const scheduleId = (): ParameterSpec => p("ScheduleId", "string", "Execution bat
 const queryDate = (required = false): ParameterSpec =>
   p("QueryDate", "string", "Query date (YYYY-MM-DD)", { required, format: "date" });
 
+const dataPagination = (
+  pageKey: "Page" | "PageIndex",
+  defaultPageSize: number,
+  pageSizeKey?: "PageSize",
+): NonNullable<EndpointSpec["pagination"]> => ({
+  pageKey,
+  ...(pageSizeKey ? { pageSizeKey } : {}),
+  defaultPageSize,
+  rowPath: ["Data"],
+  termination: "empty-page",
+});
+
 export const ENDPOINTS: readonly EndpointSpec[] = [
   {
     name: "CategoryTree", group: "category", command: "tree",
@@ -35,12 +47,14 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
       queryDate(),
       p("QueryDays", "integer", "Legacy number of days before QueryDate", { min: 1 }),
     ],
+    history: { mode: "when-fields-present", fields: ["QueryStart", "QueryDate", "QueryDays"] },
+    dateRanges: [{ startKey: "QueryStart", endKey: "QueryDate" }],
   },
   {
     name: "CategoryProducts", group: "category", command: "products",
     summary: "Fetch hot products in a category", cost: "5 requests",
     parameters: [nodeId(), page(), p("Range", "integer", "Keep the top N products by monthly sales", { min: 1 })],
-    pagination: { pageKey: "Page", defaultPageSize: 100 },
+    pagination: { ...dataPagination("Page", 100), rowPath: ["Data", "Products"] },
   },
   {
     name: "CategoryTrend", group: "category", command: "trend",
@@ -49,6 +63,7 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
       nodeId(),
       p("TrendIndex", "integer", "Trend metric index (0-15)", { required: true, min: 0, max: 15 }),
     ],
+    history: { mode: "always" },
   },
 
   {
@@ -63,6 +78,8 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
       p("QueryTrendStartDt", "string", "Trend range start (YYYY-MM-DD)", { format: "date" }),
       p("QueryTrendEndDt", "string", "Trend range end (YYYY-MM-DD)", { format: "date" }),
     ],
+    history: { mode: "when-fields-present", fields: ["QueryTrendStartDt", "QueryTrendEndDt"] },
+    dateRanges: [{ startKey: "QueryTrendStartDt", endKey: "QueryTrendEndDt" }],
   },
   {
     name: "ProductQuery", group: "product", command: "search",
@@ -70,7 +87,9 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     parameters: [
       page(),
       p("Query", "integer", "1 single condition; 2 multi-condition AND", { choices: [1, 2] }),
-      p("QueryType", "string", "Single-condition query type (1-16)"),
+      p("QueryType", "string", "Single-condition query type (1-16)", {
+        choices: Array.from({ length: 16 }, (_, index) => String(index + 1)),
+      }),
       p("Pattern", "string", "Search value for QueryType"),
     ],
   },
@@ -81,7 +100,9 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
       asin(), page(), queryDate(),
       p("QueryEndDate", "string", "Range end (YYYY-MM-DD)", { format: "date" }),
     ],
-    pagination: { pageKey: "Page", defaultPageSize: 100 },
+    pagination: dataPagination("Page", 100),
+    history: { mode: "when-fields-present", fields: ["QueryDate", "QueryEndDate"] },
+    dateRanges: [{ startKey: "QueryDate", endKey: "QueryEndDate" }],
   },
   {
     name: "ProductVariationHistory", group: "product", command: "variation-history",
@@ -104,7 +125,7 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
       asin(),
       p("Mode", "integer", "0 top reviews; 1 most recent", { required: true, choices: [0, 1] }),
       p("Star", "string", "Comma-separated star filters: 1-5, 10 negative, 11 positive"),
-      p("OnlyPurchase", "integer", "1 collects verified-purchase reviews only", { choices: [0, 1] }),
+      p("OnlyPurchase", "integer", "1 collects verified-purchase reviews only", { choices: [1] }),
       page(),
     ],
     unsafeRetry: true,
@@ -124,7 +145,7 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
       p("Star", "string", "Comma-separated star filters: 1-5, 10 negative, 11 positive"),
       p("OnlyPurchase", "integer", "0 all; 1 verified-purchase only", { choices: [0, 1] }),
     ],
-    pagination: { pageKey: "PageIndex", defaultPageSize: 100 },
+    pagination: dataPagination("PageIndex", 100),
   },
   {
     name: "SimilarProductRealtimeRequest", group: "product", command: "similar-start",
@@ -145,14 +166,20 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
   {
     name: "KeywordQuery", group: "keyword", command: "list",
     summary: "List current Amazon Brand Analytics keywords", cost: "5 requests",
-    parameters: [p("Pattern", "json", "KeywordQueryPattern JSON object"), pageIndex(), pageSize()],
-    pagination: { pageKey: "PageIndex", pageSizeKey: "PageSize", defaultPageSize: 20 },
+    parameters: [
+      p("Pattern", "json", "KeywordQueryPattern JSON object", {
+        required: true,
+        sourceOptionalButRuntimeRequired: true,
+      }),
+      pageIndex(), pageSize(),
+    ],
+    pagination: dataPagination("PageIndex", 20, "PageSize"),
   },
   {
     name: "KeywordSearchResults", group: "keyword", command: "search-results",
     summary: "Fetch recent search-result products for an ABA keyword", cost: "5 requests",
     parameters: [p("Keyword", "string", "ABA keyword", { required: true }), pageIndex(), pageSize()],
-    pagination: { pageKey: "PageIndex", pageSizeKey: "PageSize", defaultPageSize: 20 },
+    pagination: dataPagination("PageIndex", 20, "PageSize"),
   },
   {
     name: "KeywordRequest", group: "keyword", command: "get",
@@ -167,27 +194,36 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
       p("QueryStart", "string", "Start month (YYYY-MM)", { format: "month" }),
       p("QueryEnd", "string", "End month (YYYY-MM)", { format: "month" }),
     ],
+    history: { mode: "always" },
+    dateRanges: [{ startKey: "QueryStart", endKey: "QueryEnd" }],
   },
   {
     name: "CategoryRequestKeyword", group: "keyword", command: "by-category",
     summary: "Find ABA keywords associated with a leaf category", cost: "1 request",
     parameters: [nodeId(), pageIndex(), pageSize()],
-    pagination: { pageKey: "PageIndex", pageSizeKey: "PageSize", defaultPageSize: 20 },
+    pagination: dataPagination("PageIndex", 20, "PageSize"),
   },
   {
     name: "ASINRequestKeyword", group: "keyword", command: "by-asin",
     summary: "Find keywords where an ASIN ranked in the first three pages", cost: "1 request",
     parameters: [asin(), pageIndex(), pageSize()],
-    pagination: { pageKey: "PageIndex", pageSizeKey: "PageSize", defaultPageSize: 20 },
+    pagination: dataPagination("PageIndex", 20, "PageSize"),
   },
   {
     name: "KeywordProductRanking", group: "keyword", command: "product-ranking",
     summary: "Fetch historical monthly keyword result products", cost: "5 requests",
     parameters: [
       p("Keyword", "string", "ABA keyword", { required: true }),
-      p("Month", "string", "Historical month (YYYY-MM; US only)", { format: "month" }), page(),
+      p("Month", "string", "Historical month (YYYY-MM; required on US)", {
+        format: "month",
+        requiredWhen: {
+          marketplaces: ["US"],
+          reason: "the API rejects KeywordProductRanking without Month on the US marketplace",
+        },
+      }), page(),
     ],
-    pagination: { pageKey: "Page", defaultPageSize: 200 },
+    pagination: dataPagination("Page", 200),
+    history: { mode: "when-fields-present", fields: ["Month"] },
   },
   {
     name: "ASINKeywordRanking", group: "keyword", command: "asin-ranking",
@@ -197,13 +233,15 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
       p("QueryStart", "string", "Range start (YYYY-MM-DD)", { format: "date" }),
       p("QueryEnd", "string", "Range end (YYYY-MM-DD)", { format: "date" }), page(),
     ],
-    pagination: { pageKey: "Page", defaultPageSize: 200 },
+    pagination: dataPagination("Page", 200),
+    history: { mode: "when-fields-present", fields: ["QueryStart", "QueryEnd"] },
+    dateRanges: [{ startKey: "QueryStart", endKey: "QueryEnd" }],
   },
   {
     name: "KeywordExtends", group: "keyword", command: "extend",
     summary: "Fetch related ABA keywords", cost: "5 requests",
     parameters: [p("Keyword", "string", "ABA keyword", { required: true }), pageIndex(), pageSize()],
-    pagination: { pageKey: "PageIndex", pageSizeKey: "PageSize", defaultPageSize: 20 },
+    pagination: dataPagination("PageIndex", 20, "PageSize"),
   },
   {
     name: "FavoriteKeyword", group: "keyword", command: "favorite-add",
@@ -242,11 +280,11 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     parameters: [
       p("Keyword", "string", "Fuzzy keyword filter"), p("TaskId", "string", "Comma-separated task IDs"), pageIndex(), pageSize(),
     ],
-    pagination: { pageKey: "PageIndex", pageSizeKey: "PageSize", defaultPageSize: 20 },
+    pagination: dataPagination("PageIndex", 20, "PageSize"),
   },
   {
     name: "KeywordBatchTaskUpdate", group: "monitor", command: "keyword-update",
-    summary: "Modify, pause, start or delete a keyword monitor task", cost: "free",
+    summary: "Modify, pause, start or delete a keyword monitor task", cost: "free API call; Update=2 resumes coin monitoring",
     parameters: [
       p("TaskId", "integer", "Keyword monitor task ID", { required: true }),
       p("Update", "integer", "0 modify; 1 pause; 2 start; 9 delete", { required: true, choices: [0, 1, 2, 9] }),
@@ -277,7 +315,7 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
   {
     name: "BestSellerListTask", group: "monitor", command: "best-seller-list",
     summary: "List Best Seller monitor tasks", cost: "free", parameters: [pageIndex(), pageSize()],
-    pagination: { pageKey: "PageIndex", pageSizeKey: "PageSize", defaultPageSize: 20 },
+    pagination: dataPagination("PageIndex", 20, "PageSize"),
   },
   {
     name: "BestSellerListDelete", group: "monitor", command: "best-seller-delete",
@@ -312,7 +350,8 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
   },
   {
     name: "ProductSellerTaskUpdate", group: "monitor", command: "seller-update",
-    summary: "Update a seller and stock monitor task", cost: "free", parameters: [], undocumentedParameters: true, unsafeRetry: true,
+    summary: "Update a seller and stock monitor task", cost: "free API call; may change coin monitoring",
+    parameters: [], undocumentedParameters: true, unsafeRetry: true,
   },
   {
     name: "ProductSellerTaskScheduleList", group: "monitor", command: "seller-runs",
@@ -357,9 +396,18 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     parameters: [
       p("Method", "integer", "0 product analysis; 1 category analysis", { required: true, choices: [0, 1] }),
       p("Params", "string", "ASIN or NodeId filter"),
-      p("QueryStart", "string", "Range start (YYYY-MM-DD; max 7 days)", { format: "date" }),
-      p("QueryEnd", "string", "Range end (YYYY-MM-DD)", { format: "date" }),
+      p("QueryStart", "string", "Range start (YYYY-MM-DD; max 7 calendar days)", {
+        required: true,
+        sourceOptionalButRuntimeRequired: true,
+        format: "date",
+      }),
+      p("QueryEnd", "string", "Range end (YYYY-MM-DD)", {
+        required: true,
+        sourceOptionalButRuntimeRequired: true,
+        format: "date",
+      }),
     ],
+    dateRanges: [{ startKey: "QueryStart", endKey: "QueryEnd", maxCalendarDays: 7 }],
   },
   {
     name: "AIResult", group: "agent", command: "result",
@@ -374,9 +422,12 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     name: "CoinStream", group: "account", command: "coin-stream",
     summary: "Fetch coin usage details for a marketplace", cost: "free",
     parameters: [
-      p("QueryDate", "string[]", "Date range: --query-date START --query-date END", { variadic: true }), pageIndex(), pageSize(),
+      p("QueryDate", "string[]", "Date range: --query-date START --query-date END", {
+        variadic: true,
+        format: "date",
+      }), pageIndex(), pageSize(),
     ],
-    pagination: { pageKey: "PageIndex", pageSizeKey: "PageSize", defaultPageSize: 20 },
+    pagination: dataPagination("PageIndex", 20, "PageSize"),
   },
   {
     name: "RequestStreamMonth", group: "account", command: "request-stream",

@@ -1,11 +1,12 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { constants } from "node:fs";
-import { access, chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { access, chmod, lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { ValidationError } from "./errors.js";
-import type { StoredConfig } from "./types.js";
+import { OUTPUT_FORMATS } from "./types.js";
+import type { OutputFormat, StoredConfig } from "./types.js";
 
 const execFile = promisify(execFileCallback);
 const KEYCHAIN_SERVICE = "com.sorftime.cli";
@@ -33,7 +34,6 @@ async function readJsonFile<T>(path: string, fallback: T): Promise<T> {
   }
 }
 
-const OUTPUT_FORMATS = new Set(["json", "jsonl", "yaml", "csv", "table", "raw"]);
 const SECRET_CONFIG_KEY = /(authorization|token|secret|password|account[-_]?sk)/iu;
 
 function normalizeStoredConfig(value: unknown): StoredConfig {
@@ -60,7 +60,9 @@ function normalizeStoredConfig(value: unknown): StoredConfig {
     config.timeoutMs = raw.timeoutMs as number;
   }
   if (raw.output !== undefined) {
-    if (typeof raw.output !== "string" || !OUTPUT_FORMATS.has(raw.output)) throw new ValidationError("Config output format is invalid.");
+    if (typeof raw.output !== "string" || !OUTPUT_FORMATS.includes(raw.output as OutputFormat)) {
+      throw new ValidationError("Config output format is invalid.");
+    }
     config.output = raw.output as NonNullable<StoredConfig["output"]>;
   }
   return config;
@@ -80,18 +82,6 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env): Promise<
 
 export async function saveConfig(config: StoredConfig, env: NodeJS.ProcessEnv = process.env): Promise<void> {
   await atomicWriteJson(configPath(env), normalizeStoredConfig(config), 0o600);
-}
-
-export async function updateConfig(
-  patch: Partial<StoredConfig>,
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<StoredConfig> {
-  const next = { ...(await loadConfig(env)), ...patch };
-  for (const key of Object.keys(next) as (keyof StoredConfig)[]) {
-    if (next[key] === undefined) delete next[key];
-  }
-  await saveConfig(next, env);
-  return next;
 }
 
 async function hasSecurityCommand(env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
@@ -122,17 +112,35 @@ async function readKeychainToken(env: NodeJS.ProcessEnv = process.env): Promise<
 }
 
 async function readFileToken(env: NodeJS.ProcessEnv): Promise<string | undefined> {
-  const credentials = await readJsonFile<{ accountSk?: string }>(credentialsPath(env), {});
+  const path = credentialsPath(env);
+  let metadata;
+  try {
+    metadata = await lstat(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  if (metadata.isSymbolicLink()) {
+    throw new ValidationError(`Credential file ${path} must not be a symbolic link.`);
+  }
+  if (!metadata.isFile()) {
+    throw new ValidationError(`Credential path ${path} must be a regular file.`);
+  }
+  if (process.platform !== "win32" && (metadata.mode & 0o077) !== 0) {
+    throw new ValidationError(`Credential file ${path} has unsafe permissions; run chmod 600 on it.`);
+  }
+  if (typeof process.getuid === "function" && metadata.uid !== process.getuid()) {
+    throw new ValidationError(`Credential file ${path} is not owned by the current user.`);
+  }
+  const credentials = await readJsonFile<{ accountSk?: string }>(path, {});
   return credentials.accountSk?.trim() || undefined;
 }
 
-export type TokenSource = "flag" | "environment" | "keychain" | "file" | "missing";
+export type TokenSource = "environment" | "keychain" | "file" | "missing";
 
 export async function resolveToken(
-  explicit?: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ token?: string; source: TokenSource }> {
-  if (explicit?.trim()) return { token: explicit.trim(), source: "flag" };
   if (env.SORFTIME_ACCOUNT_SK?.trim()) return { token: env.SORFTIME_ACCOUNT_SK.trim(), source: "environment" };
   const keychain = await readKeychainToken(env);
   if (keychain) return { token: keychain, source: "keychain" };
