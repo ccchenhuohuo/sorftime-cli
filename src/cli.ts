@@ -11,10 +11,10 @@ import { AuthenticationError, CliError, ValidationError } from "./errors.js";
 import { optionName } from "./input.js";
 import { billingFor, blockedReasons, effectFor } from "./policy.js";
 import { runEndpoint } from "./runner.js";
+import { VERSION } from "./version.js";
 import { OUTPUT_FORMATS } from "./types.js";
 import type { EndpointSpec, GlobalOptions, OutputFormat, StoredConfig } from "./types.js";
 
-const VERSION = "1.0.0";
 const rootAbort = new AbortController();
 
 function addBodyOptions(command: Command): void {

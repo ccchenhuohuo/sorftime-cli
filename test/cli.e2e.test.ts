@@ -5,6 +5,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { VERSION } from "../src/version.js";
 
 interface RunResult { stdout: string; stderr: string; code: number | null }
 
@@ -31,7 +32,7 @@ describe("CLI contract", () => {
 
   it("prints version and help without treating them as errors", async () => {
     const version = await runCli(["--version"], {});
-    expect(version).toEqual({ stdout: "1.0.0\n", stderr: "", code: 0 });
+    expect(version).toEqual({ stdout: `${VERSION}\n`, stderr: "", code: 0 });
     const help = await runCli(["product", "--help"], {});
     expect(help.code).toBe(0);
     expect(help.stderr).toBe("");

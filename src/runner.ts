@@ -4,6 +4,7 @@ import { resolveDomain } from "./domains.js";
 import { AuthenticationError, NetworkError, ValidationError } from "./errors.js";
 import { buildRequestBody } from "./input.js";
 import { writeOutput } from "./output.js";
+import { USER_AGENT } from "./version.js";
 import { assertEndpointAllowed } from "./policy.js";
 import { SorftimeCoreClient } from "./service.js";
 import { OUTPUT_FORMATS } from "./types.js";
@@ -263,7 +264,7 @@ export async function runEndpoint(
     baseUrl,
     timeoutMs,
     retries,
-    userAgent: "sorftime-cli/1.0.0",
+    userAgent: USER_AGENT,
     maxResponseBytes: DEFAULT_MAX_RESPONSE_BYTES,
   });
   const requestBody = (requestBodyValue: JsonObject): Promise<JsonValue> => {

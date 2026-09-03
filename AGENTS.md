@@ -25,7 +25,7 @@ Read the smallest relevant set before changing code:
 
 ## Compatibility baseline
 
-- package and billing policy: `1.0.0`;
+- package version: `2.0.0`; billing policy: `1.0.0`;
 - endpoint registry: 52 Sorftime endpoints, all reachable from the CLI;
 - exposure policy: 41 of 52 endpoints open; 8 have Coin/current-or-recurring/unknown-cost consequences,
   9 are shared-state writes, 6 are in both sets, and the blocked union is 11;

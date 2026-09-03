@@ -1,5 +1,6 @@
 import { ApiError, NetworkError, ValidationError } from "./errors.js";
 import type { ApiRequestOptions, JsonObject, JsonValue } from "./types.js";
+import { USER_AGENT } from "./version.js";
 
 export const DEFAULT_BASE_URL = "https://standardapi.sorftime.com/api/";
 export const DEFAULT_MAX_RESPONSE_BYTES = 100 * 1024 * 1024;
@@ -249,7 +250,7 @@ export async function requestApi(
           Authorization: `BasicAuth ${options.token}`,
           "Content-Type": "application/json;charset=UTF-8",
           Accept: "application/json",
-          "User-Agent": options.userAgent ?? "sorftime-cli/1.0.0",
+          "User-Agent": options.userAgent ?? USER_AGENT,
         },
         body: JSON.stringify(options.body),
         signal: timed.signal,

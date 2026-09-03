@@ -40,6 +40,10 @@ var ApiError = class extends CliError {
   apiCode;
 };
 
+// src/version.ts
+var VERSION = "2.0.0";
+var USER_AGENT = `sorftime-cli/${VERSION}`;
+
 // src/client.ts
 var DEFAULT_BASE_URL = "https://standardapi.sorftime.com/api/";
 var DEFAULT_MAX_RESPONSE_BYTES = 100 * 1024 * 1024;
@@ -256,7 +260,7 @@ ${JSON.stringify(redactForLog(options.body, options.token))}
           Authorization: `BasicAuth ${options.token}`,
           "Content-Type": "application/json;charset=UTF-8",
           Accept: "application/json",
-          "User-Agent": options.userAgent ?? "sorftime-cli/1.0.0"
+          "User-Agent": options.userAgent ?? USER_AGENT
         },
         body: JSON.stringify(options.body),
         signal: timed.signal,
@@ -1923,7 +1927,7 @@ async function runEndpoint(endpoint, commandOptions, globalOptions2, signal, dep
     baseUrl,
     timeoutMs,
     retries,
-    userAgent: "sorftime-cli/1.0.0",
+    userAgent: USER_AGENT,
     maxResponseBytes: DEFAULT_MAX_RESPONSE_BYTES
   });
   const requestBody = (requestBodyValue) => {
@@ -1949,7 +1953,6 @@ async function runEndpoint(endpoint, commandOptions, globalOptions2, signal, dep
 }
 
 // src/cli.ts
-var VERSION = "1.0.0";
 var rootAbort = new AbortController();
 function addBodyOptions(command) {
   command.addOption(new Option("--data <json>", "Raw JSON request body").conflicts(["dataFile", "stdin"])).addOption(new Option("--data-file <path>", "Read the JSON request body from a file").conflicts(["data", "stdin"])).addOption(new Option("--stdin", "Read the JSON request body from standard input").conflicts(["data", "dataFile"]));
