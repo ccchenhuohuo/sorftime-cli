@@ -1,47 +1,159 @@
-# Governed workflows
+# Workflows
 
-## Keyword monitoring
+Multi-step recipes. Confirm the cost with the user before starting any of them.
 
-1. Ask for marketplace and a keyword/task selector.
-2. Call `sorftime_list_monitors` with `monitorType="keyword_ranking"`.
-3. If multiple tasks match, present identifiers and wait for selection.
-4. Call `sorftime_get_monitoring_results` with `resultType="keyword_runs"` and the selected TaskId.
-5. Ask which batch to inspect unless the user already named one.
-6. Call `resultType="keyword_run_data"` with exact ScheduleId values.
-7. Describe observed rank/result-list changes; do not infer advertising, demand, or competitor causality.
+## Category to product, without guessing an ID
 
-## Best Seller monitoring
+A category name is not a NodeId. Resolve it first.
 
-1. List monitors with `monitorType="best_seller"` when NodeId/list type is unknown.
-2. Confirm marketplace, NodeId, list type, and exact `YYYY-MM-DD HH` snapshot time.
-3. Call `resultType="best_seller_data"`.
-4. Preserve the source timestamp. The monitor schedule is documented in Beijing time; do not silently convert an ambiguous hour.
+```bash
+# 5 requests. Measured live on US: 6m33s, 10.4 MB, 35,126 nodes.
+# Always write it to a file, and tell the user it will take several minutes.
+sorftime -d us category tree --output-file /tmp/us-category-tree.json
+```
 
-## Seller and stock monitoring
+Then search that file locally for the leaf node. Local reads are free; re-fetching the tree is not.
+Once you have the NodeId:
 
-1. A reader must already have TaskId/ScheduleId; listing seller tasks is admin-only until its upstream schema is verified.
-2. Call `seller_runs`, then `seller_run_data` after a batch is selected.
-3. Treat monitor time as the marketplace-local timezone unless the returned payload states otherwise.
-4. Report observed sellers/stock only. Do not claim total Amazon inventory or seller intent.
+```bash
+sorftime -d us category best-sellers --node-id 11139610011   # 5 requests, Top 100
+```
 
-## ASIN subscriptions
+## Best Sellers over a date range
 
-1. List `asin_subscription` monitors when active subscription membership is unknown.
-2. Confirm each ASIN has exactly 10 uppercase letters/digits.
-3. Call `asin_subscription_data` for at most 100 ASINs.
-4. If an ASIN is not active or no data is returned, say it is unavailable in shared subscriptions. Never fall back to paid `ProductRequest`.
+`--query-start` plus `--query-date` switches to historical mode, billed **10 requests per 3-day
+block, rounded up**. Compute the cost before running and say it out loud:
 
-## Quota
+- 6 days = 2 blocks = 20 requests
+- 30 days = 10 blocks = 100 requests
+- 40 days (the documented maximum span) = 14 blocks = 140 requests
 
-1. Call `sorftime_check_quota` once.
-2. Explain that Coin and Request balances belong to the shared account.
-3. Do not infer per-person usage from a global balance. Per-person MCP calls are available only in the service audit log to administrators.
+```bash
+sorftime -d us category best-sellers --node-id 11139610011 \
+  --query-start 2026-08-01 --query-date 2026-08-07
+```
 
-## Requests outside policy
+Two traps in the historical response:
 
-For realtime products, product search, category research, keyword research, task creation, update, pause, resume, or deletion:
+- rows are merged and de-duplicated by `ParentAsin`, so it is not a per-day list;
+- the sales figure is the **final day's rolling 30-day sales**, not the range total. Never present
+  it as "units sold during this period".
 
-1. Do not call a vaguely related free tool.
-2. State that the initial MCP policy does not expose paid or state-changing operations.
-3. Offer explicitly dated existing monitoring/subscription data only if it answers a narrower question.
-4. Otherwise direct the user to an administrator, who may use the CLI under separate operational controls.
+The latest supported date is today minus 2 days.
+
+## Product detail and daily trends
+
+```bash
+sorftime -d us product get --asin B0XXXXXXXX             # 1 request
+sorftime -d us product get --asin B0XXXXXXXX --trend 1 \
+  --query-trend-start-dt 2026-07-01 --query-trend-end-dt 2026-08-31   # 2 requests, span > 15 days
+```
+
+`--asin` is variadic and accepts up to 10 ASINs, billed per ASIN. Trend arrays usually interleave
+date and value (`[20260319, 9, 20260320, 11, ...]`), but some responses return a bare value array
+with no dates. Detect the shape per response; do not assume one format. Monetary values are in the
+marketplace's smallest currency unit - `2699` is 26.99, not 2699.
+
+A nonexistent or delisted ASIN can still consume quota.
+
+## Asynchronous flows
+
+Three flows are start-poll-fetch. Poll manually with the user's agreement; never loop automatically.
+
+**Realtime product refresh** - forces a fresh crawl rather than reusing cached data:
+
+```bash
+sorftime -d us product realtime-start --asin B0XXXXXXXX --update 24   # 1 request (JP 2)
+sorftime -d us product realtime-status --query-date 2026-09-01        # 1 request
+sorftime -d us product get --asin B0XXXXXXXX                          # 1 request
+```
+
+**Image similarity search** - roughly 5 minutes, expect 20+ results:
+
+```bash
+sorftime -d us product similar-start --image @/path/to/photo.jpg   # 5 requests (JP 6)
+sorftime -d us product similar-status                              # free
+sorftime -d us product similar-results --task-id <id>              # free
+```
+
+**Sorftime Agent** - 25 requests per report. Prefer reading the underlying data yourself:
+
+```bash
+sorftime -d us agent product --asin B0XXXXXXXX --type 0   # 25 requests
+sorftime -d us agent status --method 0                    # 1 request
+sorftime -d us agent result --task-id <id>                # free
+```
+
+`realtime-start`, `similar-start`, and the two `agent` starters create server-side tasks. Retrying
+them duplicates the work and the charge, which is why `--retries` needs `--retry-unsafe`. Do not
+pass it.
+
+## Reading existing monitors
+
+Creating monitors is blocked, but reading whatever already exists is free.
+
+```bash
+sorftime -d us monitor best-seller-list                    # what is subscribed
+sorftime -d us monitor best-seller-data --node-id 11139610011 \
+  --best-seller-list-type 5 --query-date "2026-09-01 06"   # one window
+```
+
+`--best-seller-list-type` is `1` New Releases, `3` Most Wished For, `4` Gift Ideas, `5` Best
+Sellers. A daily monitor returns the 6-hour window after the requested hour; a 12-per-day monitor
+returns a 2-hour window.
+
+An empty result means no monitor covers that node/type/hour. Say that, rather than reporting no
+activity. Monitoring data is documented as retained about 30 days.
+
+## Reviews
+
+`product reviews-collect` is blocked, so only previously collected reviews are readable:
+
+```bash
+sorftime -d us product reviews-status --asin B0XXXXXXXX   # free, is anything collected?
+sorftime -d us product reviews-list --asin B0XXXXXXXX --star 10   # 5 requests
+```
+
+`--star` accepts `1`-`5`, `10` for negative (1-3 stars), `11` for positive (4-5 stars).
+If `reviews-status` shows nothing collected, report that collection is unavailable under the
+Coin block instead of returning an empty list as if the product had no reviews.
+
+For the star distribution alone, `product get` already returns 1-5 star percentages for 1 request -
+much cheaper than the review endpoints.
+
+## Keywords: find real ABA terms first
+
+Every keyword endpoint accepts Amazon Brand Analytics terms only. A plausible-sounding phrase you
+invented will return `code 11`, which means "not an ABA keyword", not "no search volume".
+
+Start from a real ASIN or category rather than a guess:
+
+```bash
+sorftime -d us keyword by-asin --asin B0XXXXXXXX --page-size 20        # 1 request
+sorftime -d us keyword by-category --node-id 11139610011 --page-size 20 # 1 request
+```
+
+Then feed a returned term into the detail endpoints:
+
+```bash
+sorftime -d us keyword get --keyword "mini tripod iphone"   # 1 request
+```
+
+Three parameters the source documentation marks optional are rejected without (verified live
+2026-09-03); the CLI now fails locally rather than wasting a round trip:
+
+- `keyword list` requires `--pattern`;
+- `keyword product-ranking` requires `--month` on the US marketplace;
+- `agent status` requires `--query-start` and `--query-end`.
+
+## Pagination
+
+```bash
+sorftime -d us category products --node-id 11139610011 --page 1      # look first
+sorftime -d us category products --node-id 11139610011 \
+  --all-pages --max-pages 5 --page-delay 500                          # then bound it
+```
+
+Always fetch page 1 alone before using `--all-pages`. Set `--max-pages` deliberately; the default
+of 100 is a safety cap, not a recommendation. `--page-delay` reduces the chance of hitting the
+account-global per-minute limit (`501`) and disrupting colleagues.

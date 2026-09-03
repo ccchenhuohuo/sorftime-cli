@@ -1,106 +1,90 @@
 # Codex project instructions
 
-This file is the authoritative development guide for coding agents working in this repository. The root `README.md` is written for repository users and operators; it is not a substitute for these instructions.
+This file is the authoritative development guide for coding agents working in this repository. The root `README.md` is written for repository users; it is not a substitute for these instructions.
 
 ## Mission
 
-Maintain a governed Sorftime data service with one deterministic API core and three adapters:
+Maintain a governed Sorftime data client with one deterministic API core and two surfaces:
 
-- MCP is the team-facing execution, identity, audit, rate-limit, and policy boundary;
-- the Sorftime Research Skill is the Host-side routing and interpretation protocol;
-- the CLI is the administrator/developer surface for complete endpoint access, diagnostics, batch work, and emergency operations.
+- the CLI is the only execution path: endpoint routing, input validation, credentials, billing policy, pagination, output, and upstream error handling;
+- the Sorftime Research Skill is the Host-side routing and interpretation protocol.
 
-Probabilistic language understanding must end before endpoint authorization and execution begin.
+Probabilistic language understanding must end before endpoint selection and execution begin.
+
+There is no MCP server. It was removed deliberately: its identity, rate-limit, and audit machinery served a multi-tenant server topology that this deployment does not have, and its policy layer exposed only free endpoints, which answered no business question.
 
 ## Start here
 
 Read the smallest relevant set before changing code:
 
-- architecture or adapter boundaries: `docs/architecture.md`;
-- MCP/Skill behavior: `docs/mcp-skill-integration.md` and `skills/sorftime-research/SKILL.md`;
-- deployment, authentication, secrets, or production readiness: `docs/deployment.md`;
-- endpoint contracts: `src/endpoints.ts` and `src/core/governance.ts`;
-- MCP tools: `src/mcp/server.ts`;
-- CLI behavior: `README.md` and `src/cli.ts`.
+- CLI behavior: `src/cli.ts`, `src/runner.ts`, and `README.md`;
+- endpoint contracts: `src/endpoints.ts`;
+- exposure and billing policy: `src/policy.ts`;
+- Skill behavior: `skills/sorftime-research/SKILL.md` and `docs/cli-skill-integration.md`;
+- distribution, credentials, and rollout: `docs/deployment.md`.
 
 ## Compatibility baseline
 
-- package, MCP contract, and governance policy: `1.0.0`;
-- endpoint registry: 52 Sorftime endpoints;
-- ordinary MCP surface: 4 tools, free and read-only only;
-- optional admin MCP surface: 2 tools, still free and read-only;
-- Skill: `sorftime-research`, compatible with MCP `1.0.x`;
-- runtime: Node.js 20+, TypeScript, MCP SDK v1, Streamable HTTP and stdio.
+- package and billing policy: `1.0.0`;
+- endpoint registry: 52 Sorftime endpoints, all reachable from the CLI;
+- exposure policy: 41 of 52 endpoints open; 6 blocked as Coin-spending or unpriced, 5 as shared-state writes;
+- Skill: `sorftime-research`;
+- runtime: Node.js 20+, TypeScript, no server dependencies.
 
 ## Non-negotiable invariants
 
-1. Never commit or print a real Sorftime Account-SK, MCP API key, proxy secret, Authorization header, or raw credential file.
-2. `src/core/governance.ts` must classify all 52 endpoints. MCP authorization never parses the human `cost` string.
-3. The initial MCP policy exposes only `billing=free`, `effect=read`, explicitly allowlisted endpoints.
-4. Paid reads, Coin-charged calls, task creation, updates, subscriptions, and deletes are not MCP tools.
-5. MCP never exposes `raw_call` or arbitrary endpoint/body passthrough. Raw access remains CLI-only for operators.
-6. User/tenant/role identity comes only from authenticated transport context. Tool inputs must never select or override identity.
-7. Stdio has no employee authentication; bind one principal at process launch and document it as local/operator mode.
-8. Audit records may contain actor, tenant, tool, endpoint names, marketplace, fingerprints, timing, decision, and outcome. They must not contain complete arguments, keywords, ASIN lists, headers, tokens, or upstream payloads.
-9. A free endpoint reporting positive `RequestConsumed` opens the billing circuit. Do not continue automatically.
-10. MCP retries remain zero. A lost response must not duplicate paid work; paid work is unavailable in MCP regardless.
-11. Preserve exact documented wire casing (`ASIN`, `Asin`, `Asins`, `Querystartdt`). Do not normalize payload keys at the shared-client boundary.
-12. Upstream unknown schemas remain JSON. Do not invent field meanings or present missing/unavailable values as zero.
-13. Shared quota is account-global, never an employee allowance. Per-person activity comes from MCP audit, not Sorftime balance fields.
-14. The Skill must not invoke the CLI, request credentials, invent identifiers, silently substitute stale monitoring for paid realtime data, or infer causality.
-15. CLI completeness must not weaken MCP policy. CLI and MCP share the API core, not the same public command surface.
-16. HTTP production/non-loopback mode must authenticate, restrict Hosts, validate Origins when present, cap sessions/concurrency, and keep the Account-SK server-side.
-17. MCP output and errors must remain sanitized. Unexpected upstream payloads never appear in public error details.
-18. Do not add experimental MCP Tasks for Sorftime async APIs until ownership, identity binding, TTL, persistence, and polling policy are designed and tested.
+1. Never commit or print a real Sorftime Account-SK, credential file, or `Authorization` header. `--verbose` must never reveal it.
+2. `src/policy.ts` must classify all 52 endpoints for billing. Never derive cost from the human-readable `cost` string in `endpoints.ts`, which is advisory prose for `--help`.
+3. Both blocks live in `assertEndpointAllowed()`, called from `runEndpoint()` before credential resolution and before any network call, so they also cover `sorftime api call`.
+4. An endpoint absent from the billing catalog is treated as Coin-spending. Unpriced is not free.
+5. `--allow-coin` and `--allow-write` are deliberate single-invocation overrides. Never make either a config default, an environment variable, or a Skill default. Everyone holds the same account-level credential, so a write changes what every colleague sees and `BestSellerListDelete` has no undo.
+6. Retries stay at zero by default. A lost response must not duplicate paid work. Task-creating endpoints additionally require `--retry-unsafe`.
+7. Preserve exact documented wire casing (`ASIN`, `Asin`, `Asins`, `Querystartdt`). Do not normalize payload keys at the client boundary.
+8. Upstream unknown schemas remain JSON. Do not invent field meanings or present missing/unavailable values as zero.
+9. Quota is account-global, never a per-person allowance. `500`, `501`, and `694` may be caused by another user; report and stop rather than retrying.
+10. Credentials come from `sorftime auth login`, `SORFTIME_ACCOUNT_SK`, the OS keychain, or a mode-0600 file. `config set` must keep refusing credential-shaped keys.
+11. The Skill must not request credentials, invent identifiers, silently substitute a different endpoint for a blocked one, or infer causality.
+12. Do not reintroduce an MCP server, an HTTP transport, or a per-identity rate limiter without a topology that needs one.
 
 ## Module ownership
 
 ```text
-src/core/service.ts              Shared Sorftime API execution core
-src/core/governance.ts           Exhaustive machine authorization classification
-src/client.ts                    Low-level HTTP/envelope/timeout/size handling
-src/endpoints.ts                 Complete CLI endpoint/parameter registry
-src/mcp/config.ts                Fail-closed runtime and identity configuration
-src/mcp/auth.ts                  HTTP identity derivation
-src/mcp/audit.ts                 Privacy-preserving audit sink
-src/mcp/rate-limit.ts            Per-identity/global local limiter
-src/mcp/executor.ts              Policy, audit, billing circuit, unified result
-src/mcp/server.ts                Transport-independent public tool schemas
-src/mcp/http-server.ts           HTTP auth/origin/host/session lifecycle
-src/mcp/http.ts                  Thin HTTP entrypoint
-src/mcp/stdio.ts                 Thin stdio entrypoint; stdout is protocol-only
-src/cli.ts + src/runner.ts       Full operator CLI adapter
-skills/sorftime-research/        Host routing and interpretation Skill
-test/                             CLI, core, governance, MCP, HTTP, Skill contracts
+src/cli.ts            Command tree, global flags, auth/config/utility commands
+src/runner.ts         Execution orchestration, billing gate, pagination, guardrails
+src/endpoints.ts      Complete endpoint/parameter registry (52 endpoints)
+src/policy.ts         Billing/effect classification and the default exposure gate
+src/service.ts        Deterministic API execution core
+src/client.ts         HTTP, envelope, timeout, and response-size handling
+src/config.ts         Credential resolution (keychain/file/env) and non-secret defaults
+src/input.ts          Typed flag to wire-body construction
+src/output.ts         Output formats, selection, atomic file writes
+skills/sorftime-research/  Host routing and interpretation Skill
+test/                 CLI, client, policy, endpoint, and Skill contract tests
 ```
-
-Do not make MCP shell out to the CLI. Do not duplicate endpoint HTTP logic inside a tool handler.
 
 ## Change workflow
 
 1. Inspect the worktree and preserve unrelated user changes.
-2. Identify which public boundary changes: core, CLI, governance, MCP schema, identity, Skill, or documentation.
+2. Identify which boundary changes: endpoint registry, billing policy, CLI surface, or Skill.
 3. Implement the smallest coherent change.
 4. Update tests at the same boundary:
-   - endpoint/core: client, input, endpoint and CLI regression tests;
-   - governance: exhaustive `mcp-governance` tests;
-   - tools/output: official SDK `mcp-contract` tests;
-   - auth/session/runtime: config and `mcp-http` tests;
-   - Skill: `skill-contract`, evals, and `quick_validate.py`.
-5. Update README for user behavior and AGENTS/Skill references for invariant/workflow changes.
-6. Run `pnpm check`, the Skill validator, secret scan, packaged CLI smoke, packaged MCP stdio smoke, and Docker build when available.
-7. Live checks may call only documented free read-only endpoints and must suppress account values.
+   - endpoint/core: `client`, `input`, `endpoints`, and `cli.e2e` tests;
+   - policy: `policy` tests, including the blocked-set assertions;
+   - Skill: `skill-contract` tests and evals.
+5. Update README for user behavior, and AGENTS/Skill references for invariant changes.
+6. Run `pnpm check` and the Skill validator.
+7. Live checks must respect the billing policy: no Coin calls, and confirm the request cost first.
 
-## MCP and Skill lockstep
+## CLI and Skill lockstep
 
-When a tool name, selector, result field, error code, policy, admin boundary, or interpretation rule changes:
+When a command name, flag, billing classification, error code, or interpretation rule changes:
 
-- update runtime code and strict schema;
+- update the runtime code;
 - update `skills/sorftime-research/SKILL.md` or its selected reference;
-- update Skill evals and contract tests;
-- update `docs/mcp-skill-integration.md` and README if operator/user behavior changes.
+- update Skill evals and `test/skill-contract.test.ts`;
+- update `docs/cli-skill-integration.md` and README if user behavior changes.
 
-The Skill must discover uncertain runtime capabilities. It must not become a second executable endpoint registry.
+The Skill must discover uncertain capability through `sorftime endpoints` and `--help`. It must not become a second endpoint registry.
 
 ## Validation
 
@@ -116,24 +100,22 @@ Skill validation:
 
 ```bash
 python3 /path/to/skill-creator/scripts/quick_validate.py skills/sorftime-research
-pnpm exec vitest run test/skill-contract.test.ts test/mcp-contract.test.ts
+pnpm exec vitest run test/skill-contract.test.ts
 ```
 
 ## Review checklist
 
-- Does every reachable endpoint remain free and read-only?
-- Can an argument influence endpoint selection outside a fixed route?
-- Does role/tenant come only from transport auth?
-- Could any secret or complete input enter output, logs, audit, fixtures, docs, or git?
-- Are schema objects strict and bounded?
+- Does the billing catalog still classify every registered endpoint?
+- Can a Coin-spending or state-changing call reach the network without its explicit override?
+- Could a secret enter output, logs, fixtures, docs, or git?
+- Are empty, unavailable, blocked, and zero kept distinct?
+- Do CLI help, Skill, README, and billing classification agree?
 - Does cancellation reach the upstream fetch?
-- Are empty, unavailable, forbidden, and zero distinct?
-- Do MCP, Skill, README, examples, tests, and policy classification agree?
-- Does the CLI still cover all 52 endpoints without changing MCP exposure?
+- Does the registry still cover all 52 endpoints, with exactly 11 blocked?
 
 ## Git and release
 
 - Keep commits scoped and descriptive.
-- Never commit `.env`, `var/audit.jsonl`, credential files, `dist`, coverage, raw API output, or internal gateway addresses.
-- Before pushing, run `git diff --check`, `pnpm check`, Skill validation, packaging smoke, and a token-value scan against the source note without printing the token.
-- A passing local build does not prove team deployment is ready. Company gateway/OIDC configuration, secret manager, shared rate/audit storage for replicas, TLS, retention, monitoring, and backup remain deployment responsibilities.
+- Never commit `.env`, credential files, `dist`, coverage, or raw API output.
+- Before pushing, run `git diff --check`, `pnpm check`, Skill validation, and a token-value scan against the source note without printing the token.
+- A passing local build does not prove the team rollout is ready. Credential distribution, rotation, offboarding, quota headroom, and the upstream IP allowlist question remain rollout responsibilities; see `docs/deployment.md`.

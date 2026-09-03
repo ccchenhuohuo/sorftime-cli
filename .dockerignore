@@ -4,6 +4,4 @@ coverage
 .git
 .env*
 *.log
-var
-certs
 .work

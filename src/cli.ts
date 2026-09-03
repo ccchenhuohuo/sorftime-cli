@@ -9,6 +9,7 @@ import { DOMAINS, resolveDomain } from "./domains.js";
 import { ENDPOINTS, findEndpoint } from "./endpoints.js";
 import { AuthenticationError, CliError, ValidationError } from "./errors.js";
 import { optionName } from "./input.js";
+import { billingFor, blockedReason, effectFor } from "./policy.js";
 import { runEndpoint } from "./runner.js";
 import type { EndpointSpec, GlobalOptions, OutputFormat, StoredConfig } from "./types.js";
 
@@ -37,9 +38,10 @@ function globalOptions(command: Command): GlobalOptions {
 }
 
 function addEndpointCommand(parent: Command, endpoint: EndpointSpec): void {
+  const blocked = blockedReason(endpoint.name);
   const command = parent
     .command(endpoint.command)
-    .description(`${endpoint.summary} [cost: ${endpoint.cost}]`)
+    .description(`${endpoint.summary} [cost: ${endpoint.cost}]${blocked ? ` [BLOCKED: ${blocked.detail}; needs --allow-${blocked.kind === "coin" ? "coin" : "write"}]` : ""}`)
     .summary(endpoint.summary);
   for (const parameter of endpoint.parameters) command.addOption(optionForParameter(parameter));
   addBodyOptions(command);
@@ -164,10 +166,23 @@ function installUtilityCommands(program: Command): void {
       const endpoints = options.group ? ENDPOINTS.filter((item) => item.group === options.group) : ENDPOINTS;
       if (options.group && endpoints.length === 0) throw new ValidationError(`Unknown endpoint group '${options.group}'.`);
       if (options.json) {
-        process.stdout.write(`${JSON.stringify(endpoints, null, 2)}\n`);
+        const rows = endpoints.map((item) => ({
+          ...item, billing: billingFor(item.name), effect: effectFor(item.name),
+          blocked: blockedReason(item.name)?.kind ?? null,
+        }));
+        process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
       } else {
-        const lines = endpoints.map((item) => `${item.name.padEnd(45)} ${item.group.padEnd(9)} ${item.command.padEnd(22)} ${item.cost}`);
-        process.stdout.write(`ENDPOINT                                      GROUP     COMMAND                COST\n${lines.join("\n")}\n`);
+        const lines = endpoints.map((item) => {
+          const blockedKind = blockedReason(item.name)?.kind;
+          const status = blockedKind === "coin" ? "COIN" : blockedKind === "write" ? "WRITE" : "open";
+          return `${item.name.padEnd(45)} ${item.group.padEnd(9)} ${item.command.padEnd(22)} ${billingFor(item.name).padEnd(15)} ${status.padEnd(7)} ${item.cost}`;
+        });
+        const open = endpoints.filter((item) => blockedReason(item.name) === undefined).length;
+        process.stdout.write(
+          `ENDPOINT                                      GROUP     COMMAND                BILLING         STATUS  COST\n${lines.join("\n")}\n`
+          + `\n${open}/${endpoints.length} open. COIN = spends Coin or has an undocumented cost (--allow-coin). `
+          + "WRITE = changes shared account state (--allow-write).\n",
+        );
       }
     });
 
@@ -216,7 +231,9 @@ export function createProgram(): Command {
     .option("--output-file <path>", "Write output atomically to a file")
     .option("--compact", "Emit compact JSON")
     .option("--verbose", "Print safe request diagnostics to stderr (credentials are never printed)")
-    .option("--force", "Bypass marketplace history-support guardrails");
+    .option("--force", "Bypass marketplace history-support guardrails")
+    .option("--allow-coin", "Permit one call to a Coin-spending endpoint (blocked by default)")
+    .option("--allow-write", "Permit one call that changes shared account state (blocked by default)");
 
   installAuthCommands(program);
   installConfigCommands(program);

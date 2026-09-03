@@ -22,7 +22,9 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
   {
     name: "CategoryTree", group: "category", command: "tree",
     summary: "Fetch the full Amazon Best Sellers category tree", cost: "5 requests",
-    parameters: [], timeoutMs: 300_000,
+    // Measured live 2026-09-03 on US: 6m33s, 10.4 MB, 35,126 nodes. The previous 300s default
+    // timed out. Larger marketplaces have headroom here; always write the result to a file.
+    parameters: [], timeoutMs: 900_000,
   },
   {
     name: "CategoryRequest", group: "category", command: "best-sellers",
@@ -53,7 +55,10 @@ export const ENDPOINTS: readonly EndpointSpec[] = [
     name: "ProductRequest", group: "product", command: "get",
     summary: "Fetch product details and optional trend data", cost: "1 per ASIN; 2 for trends longer than 15 days",
     parameters: [
-      asin("ASIN", "string[]"),
+      // Verified live 2026-09-03: a JSON array returns Code 0 with Data null and no charge,
+      // for one ASIN and for several. Only a comma-separated string returns data. The source
+      // documentation's batch-array example is wrong; do not restore the array encoding.
+      { ...asin("ASIN", "string[]"), wire: "csv", description: "Amazon ASIN; repeatable, up to 10" },
       p("Trend", "integer", "1 includes trend data; 2 excludes it", { choices: [1, 2] }),
       p("QueryTrendStartDt", "string", "Trend range start (YYYY-MM-DD)", { format: "date" }),
       p("QueryTrendEndDt", "string", "Trend range end (YYYY-MM-DD)", { format: "date" }),

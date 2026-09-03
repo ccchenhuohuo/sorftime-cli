@@ -67,7 +67,7 @@ describe("CLI contract", () => {
     expect(observed).toEqual({
       url: "/api/ProductRequest?domain=7",
       auth: "BasicAuth e2e-sentinel-secret",
-      body: { ASIN: ["B000TEST"], Trend: 2 },
+      body: { ASIN: "B000TEST", Trend: 2 },
     });
     expect(result.stdout + result.stderr).not.toContain("e2e-sentinel-secret");
   });
@@ -94,7 +94,8 @@ describe("CLI contract", () => {
     if (!address || typeof address === "string") throw new Error("Missing test server address");
 
     const result = await runCli([
-      "--all-pages", "--output", "json", "keyword", "list", "--page-size", "20",
+      "--all-pages", "--output", "json", "keyword", "list",
+      "--pattern", '{"RankCondition":[1,1000]}', "--page-size", "20",
     ], {
       SORFTIME_ACCOUNT_SK: "pagination-sentinel",
       SORFTIME_BASE_URL: `http://127.0.0.1:${address.port}/api/`,

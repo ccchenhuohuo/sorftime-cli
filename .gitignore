@@ -7,6 +7,4 @@ coverage/
 .work/
 *.log
 .DS_Store
-var/
-certs/
 .claude/skills/sorftime-research/

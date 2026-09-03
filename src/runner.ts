@@ -1,10 +1,11 @@
 import { apiEnvelopeData, DEFAULT_BASE_URL } from "./client.js";
 import { loadConfig, resolveToken } from "./config.js";
-import { SorftimeCoreClient } from "./core/service.js";
+import { SorftimeCoreClient } from "./service.js";
 import { resolveDomain } from "./domains.js";
 import { AuthenticationError, ValidationError } from "./errors.js";
 import { buildRequestBody } from "./input.js";
 import { writeOutput } from "./output.js";
+import { assertEndpointAllowed } from "./policy.js";
 import type { EndpointSpec, GlobalOptions, JsonObject, JsonValue, OutputFormat } from "./types.js";
 
 const OUTPUT_FORMATS: readonly OutputFormat[] = ["json", "jsonl", "yaml", "csv", "table", "raw"];
@@ -167,6 +168,7 @@ export async function runEndpoint(
   globalOptions: GlobalOptions,
   signal?: AbortSignal,
 ): Promise<void> {
+  assertEndpointAllowed(endpoint.name, { allowCoin: globalOptions.allowCoin, allowWrite: globalOptions.allowWrite });
   const config = await loadConfig();
   const tokenResult = await resolveToken(globalOptions.token);
   if (!tokenResult.token) {
@@ -174,7 +176,7 @@ export async function runEndpoint(
   }
 
   const domain = resolveDomain(globalOptions.domain ?? process.env.SORFTIME_DOMAIN ?? config.domain);
-  const body = await buildRequestBody(endpoint, commandOptions);
+  const body = await buildRequestBody(endpoint, commandOptions, domain.code);
   if (!domain.historyBackfill && requestsHistory(endpoint, body) && !globalOptions.force) {
     throw new ValidationError(
       `${domain.code} does not support historical backfill for this endpoint. Omit historical fields or pass --force to send anyway.`,

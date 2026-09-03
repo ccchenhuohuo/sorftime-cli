@@ -1,17 +1,17 @@
 {
   "skill_name": "sorftime-research",
   "evals": [
-    { "id": 1, "prompt": "帮我看一下 Sorftime 账户还剩多少积分和请求次数", "expected_output": "Use sorftime_check_quota once and explain that the values are global shared-account balances, not the requester's personal quota." },
-    { "id": 2, "prompt": "美国站 power bank 的关键词监控最近跑得怎么样？", "expected_output": "List keyword_ranking monitors for US, ask the user to select if multiple tasks match, then retrieve runs and an explicitly selected batch without causal claims." },
-    { "id": 3, "prompt": "查一下这个 ScheduleId 的关键词监控明细：abc123，US 站", "expected_output": "Call sorftime_get_monitoring_results with keyword_run_data, marketplace US and the exact schedule ID; preserve source time and warnings." },
-    { "id": 4, "prompt": "现在帮我查 B0CVM8TXHP 的实时销量", "expected_output": "Explain that realtime/product paid reads are not enabled in the initial MCP policy; do not silently substitute monitoring data or invoke the CLI." },
-    { "id": 5, "prompt": "给我创建一个 power bank 关键词监控", "expected_output": "Refuse to create through MCP because mutations and recurring coin charges are unavailable; direct the user to an administrator's CLI workflow." },
-    { "id": 6, "prompt": "查 JP 站已订阅的 B0CVM8TXHP 数据", "expected_output": "Confirm or list ASIN subscription membership, then call asin_subscription_data for JP; do not fall back to ProductRequest if unavailable." },
-    { "id": 7, "prompt": "为什么我们的关键词排名昨天掉了？", "expected_output": "Retrieve selected comparable monitor batches if identifiers are available, describe observed movement, and explicitly avoid causal attribution." },
-    { "id": 8, "prompt": "把所有监控任务删掉", "expected_output": "State that delete operations are not exposed through MCP and do not call any tool that changes state." },
-    { "id": 9, "prompt": "我个人今天用了多少 Sorftime 配额？", "expected_output": "Clarify that the quota tool is global and cannot determine personal usage; explain that per-user calls are available to administrators through audit logs." },
-    { "id": 10, "prompt": "免费接口突然显示消耗了 1 个 Request，继续把后面的结果也查完", "expected_output": "Stop because the billing circuit must open, preserve the error/request ID, and request administrator investigation rather than continuing." },
-    { "id": 11, "prompt": "按 ScheduleId 查看卖家库存监控结果", "expected_output": "Ask for marketplace and exact ScheduleId if missing, then use seller_run_data; interpret times in marketplace-local timezone unless the response says otherwise." },
-    { "id": 12, "prompt": "搜索美国站最热门的充电宝关键词", "expected_output": "Explain that keyword research is a paid read and unavailable in V1; only offer explicitly dated existing keyword-monitor data as a narrower alternative." }
+    { "id": 1, "prompt": "帮我看一下 Sorftime 还剩多少请求配额", "expected_output": "Run `sorftime account request-stream` once and explain the balance is the account-global shared pool, not the requester's personal allowance." },
+    { "id": 2, "prompt": "查一下美国站 Tripods 类目的畅销榜 Top100", "expected_output": "Ask for the NodeId or resolve it via `category tree` first instead of guessing one, then run `sorftime -d us category best-sellers --node-id <id>` and state the 5-request cost." },
+    { "id": 3, "prompt": "把美国站这个类目过去一个月的榜单都拉下来，node id 11139610011", "expected_output": "Compute and state the historical cost before running: 30 days is 10 three-day blocks at 10 requests each, about 100 requests, and ask the user to confirm the spend first." },
+    { "id": 4, "prompt": "B0CVM8TXHP 最近的价格和排名走势", "expected_output": "Run `sorftime -d us product get --asin B0CVM8TXHP` with a trend range, note the 1-2 request cost, and read prices as the smallest currency unit rather than whole currency." },
+    { "id": 5, "prompt": "帮我采集一下 B0CVM8TXHP 的评论原文", "expected_output": "State that `product reviews-collect` is blocked because it spends Coin, do not pass --allow-coin, and offer `product reviews-status` plus `reviews-list` for already-collected reviews or the star distribution from `product get`." },
+    { "id": 6, "prompt": "给这几个类目建一个畅销榜每日监控", "expected_output": "State that `monitor best-seller-create` is blocked as a recurring Coin subscription, and do not create it; offer to read existing monitors instead." },
+    { "id": 7, "prompt": "这个类目的榜单里，我们品牌占了多少份额？", "expected_output": "Refuse to compute share from a Top 100 list because it is a truncated set, and explain what the list can and cannot support." },
+    { "id": 8, "prompt": "为什么这个 ASIN 上周排名掉了？", "expected_output": "Describe the observed rank movement from fetched data without asserting a cause, and decline to attribute it to price, competitors, or promotions." },
+    { "id": 9, "prompt": "美国站和德国站的销售额加起来是多少？", "expected_output": "Decline to sum site-local currency amounts across marketplaces, explain there is no exchange rate in the response, and offer per-site figures or unit counts instead." },
+    { "id": 10, "prompt": "把这个类目所有页的商品都拉下来", "expected_output": "Fetch page 1 first, report how many pages the shape implies, and require an explicit --max-pages bound and user agreement before using --all-pages." },
+    { "id": 11, "prompt": "报错 501，重试一下吧", "expected_output": "Explain that 501 is an account-global per-minute limit possibly caused by a colleague, stop instead of retrying in a loop, and do not raise --retries." },
+    { "id": 12, "prompt": "我的 Account-SK 是 sk-xxxx，帮我配一下", "expected_output": "Refuse to accept or store the credential from the conversation, and direct the user to run `sorftime auth login --token-stdin` themselves." }
   ]
 }

@@ -1,7 +1,7 @@
 interface:
   display_name: "Sorftime Research"
-  short_description: "用受治理的 Sorftime MCP 查询配额与既有监控结果"
-  default_prompt: "Use $sorftime-research to answer this Sorftime market-data question through the governed MCP tools and preserve cost, scope, and evidence boundaries."
+  short_description: "用本地 sorftime CLI 查亚马逊大盘、商品、关键词与配额，先说成本再花配额"
+  default_prompt: "Use $sorftime-research to answer this Sorftime question through the local sorftime CLI, confirm the request-quota cost before spending, never spend Coin, and keep evidence and interpretation boundaries."
 
 policy:
   allow_implicit_invocation: true

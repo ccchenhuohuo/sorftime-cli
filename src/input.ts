@@ -119,7 +119,8 @@ async function coerceValue(raw: unknown, parameter: ParameterSpec): Promise<Json
   }
   if (parameter.type === "string[]") {
     const values = Array.isArray(raw) ? raw : [raw];
-    return values.flatMap((value) => String(value).split(",")).map((value) => value.trim()).filter(Boolean);
+    const items = values.flatMap((value) => String(value).split(",")).map((value) => value.trim()).filter(Boolean);
+    return parameter.wire === "csv" ? items.join(",") : items;
   }
   if (parameter.type === "json") {
     if (typeof raw !== "string") return raw as JsonValue;
@@ -159,6 +160,7 @@ export interface BodyInputOptions {
 export async function buildRequestBody(
   endpoint: EndpointSpec,
   commandOptions: Record<string, unknown>,
+  marketplace?: string,
 ): Promise<JsonObject> {
   const input: BodyInputOptions = {
     ...(typeof commandOptions.data === "string" ? { data: commandOptions.data } : {}),
@@ -189,13 +191,35 @@ export async function buildRequestBody(
     if (value !== undefined && parameter.type === "string" && typeof value === "string") validateFormat(value, parameter);
   }
 
-  validateEndpointBody(endpoint, body);
+  validateEndpointBody(endpoint, body, marketplace);
   return body;
 }
 
-function validateEndpointBody(endpoint: EndpointSpec, body: JsonObject): void {
-  if (endpoint.name === "ProductRequest" && Array.isArray(body.ASIN) && body.ASIN.length > 10) {
-    throw new ValidationError("ProductRequest accepts at most 10 ASINs per call.");
+/**
+ * Parameters the source documentation marks optional but the API rejects without.
+ * Each was verified live on 2026-09-03: omitting it returns business code 10
+ * (invalid parameter) after a wasted round trip. Failing locally is cheaper and clearer.
+ */
+function validateDocumentedOptionalButRequired(endpoint: EndpointSpec, body: JsonObject, marketplace?: string): void {
+  if (endpoint.name === "KeywordQuery" && body.Pattern === undefined) {
+    throw new ValidationError("KeywordQuery requires --pattern; the API rejects the call without it despite the documentation marking it optional.");
+  }
+  if (endpoint.name === "AIResultQuery" && (body.QueryStart === undefined || body.QueryEnd === undefined)) {
+    throw new ValidationError("AIResultQuery requires --query-start and --query-end (span up to 7 days); the API rejects the call without them despite the documentation marking them optional.");
+  }
+  if (endpoint.name === "KeywordProductRanking" && body.Month === undefined && (marketplace ?? "US").toUpperCase() === "US") {
+    throw new ValidationError("KeywordProductRanking requires --month (YYYY-MM) on the US marketplace; the API rejects the call without it despite the documentation marking it optional.");
+  }
+}
+
+function validateEndpointBody(endpoint: EndpointSpec, body: JsonObject, marketplace?: string): void {
+  validateDocumentedOptionalButRequired(endpoint, body, marketplace);
+  // ASIN goes on the wire as a comma-separated string, so count the parts, not an array.
+  if (endpoint.name === "ProductRequest" && body.ASIN !== undefined) {
+    const count = Array.isArray(body.ASIN)
+      ? body.ASIN.length
+      : String(body.ASIN).split(",").filter((part) => part.trim().length > 0).length;
+    if (count > 10) throw new ValidationError("ProductRequest accepts at most 10 ASINs per call.");
   }
   if (endpoint.name === "ProductQuery" && (body.Query === undefined || body.Query === 1)) {
     if (body.QueryType === undefined || body.Pattern === undefined) {

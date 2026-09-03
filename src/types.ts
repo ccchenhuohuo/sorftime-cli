@@ -17,6 +17,12 @@ export interface ParameterSpec {
   description: string;
   required?: boolean;
   variadic?: boolean;
+  /**
+   * Wire encoding for a `string[]` parameter. Defaults to a JSON array.
+   * `csv` joins the values into one comma-separated string, which some endpoints
+   * require even though the source documentation shows an array example.
+   */
+  wire?: "csv";
   choices?: readonly (string | number)[];
   min?: number;
   max?: number;
@@ -80,6 +86,8 @@ export interface GlobalOptions {
   verbose?: boolean;
   force?: boolean;
   retryUnsafe?: boolean;
+  allowCoin?: boolean;
+  allowWrite?: boolean;
   allPages?: boolean;
   maxPages?: string;
   pageDelay?: string;

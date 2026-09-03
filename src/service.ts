@@ -1,8 +1,8 @@
-import { requestApi } from "../client.js";
-import { resolveDomain } from "../domains.js";
-import { findEndpoint } from "../endpoints.js";
-import { ValidationError } from "../errors.js";
-import type { JsonObject, JsonValue } from "../types.js";
+import { requestApi } from "./client.js";
+import { resolveDomain } from "./domains.js";
+import { findEndpoint } from "./endpoints.js";
+import { ValidationError } from "./errors.js";
+import type { JsonObject, JsonValue } from "./types.js";
 
 export interface SorftimeCoreConfig {
   token: string;
@@ -24,7 +24,7 @@ export interface SorftimeCallOptions {
   verbose?: boolean;
 }
 
-/** Shared deterministic API core used by both the CLI adapter and MCP server. */
+/** Deterministic API execution core. Endpoint resolution and transport live here; policy does not. */
 export class SorftimeCoreClient {
   constructor(private readonly config: SorftimeCoreConfig) {}
 

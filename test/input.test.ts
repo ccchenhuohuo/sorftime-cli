@@ -11,14 +11,53 @@ function endpoint(name: string): EndpointSpec {
 }
 
 describe("request-body coercion", () => {
-  it("coerces repeatable/comma-separated ASIN input into an array", async () => {
+  // Verified live 2026-09-03: ProductRequest returns Code 0 / Data null / no charge for a JSON
+  // array, at any length. Only a comma-separated string returns data. Do not "fix" this back
+  // into an array to match the source documentation's batch example, which is wrong.
+  it("serializes repeatable/comma-separated ASIN input as one comma-separated string", async () => {
     await expect(buildRequestBody(endpoint("ProductRequest"), {
       asin: ["B000TEST01,B000TEST02", "B000TEST03"],
       trend: "2",
     })).resolves.toEqual({
-      ASIN: ["B000TEST01", "B000TEST02", "B000TEST03"],
+      ASIN: "B000TEST01,B000TEST02,B000TEST03",
       Trend: 2,
     });
+  });
+
+  it("serializes a single ASIN as a bare string, never a one-element array", async () => {
+    const body = await buildRequestBody(endpoint("ProductRequest"), { asin: ["B000TEST01"] });
+    expect(body.ASIN).toBe("B000TEST01");
+    expect(Array.isArray(body.ASIN)).toBe(false);
+  });
+
+  // Verified live 2026-09-03: each of these returns business code 10 when the parameter is
+  // omitted, even though the source documentation marks it optional. Fail locally instead.
+  it("requires KeywordQuery --pattern", async () => {
+    await expect(buildRequestBody(endpoint("KeywordQuery"), { pageIndex: "1" }))
+      .rejects.toThrow(/requires --pattern/u);
+    await expect(buildRequestBody(endpoint("KeywordQuery"), { pattern: '{"RankCondition":[1,1000]}' }))
+      .resolves.toMatchObject({ Pattern: { RankCondition: [1, 1000] } });
+  });
+
+  it("requires AIResultQuery date range", async () => {
+    await expect(buildRequestBody(endpoint("AIResultQuery"), { method: "0" }))
+      .rejects.toThrow(/requires --query-start and --query-end/u);
+    await expect(buildRequestBody(endpoint("AIResultQuery"), { method: "0", queryStart: "2026-08-28", queryEnd: "2026-09-03" }))
+      .resolves.toMatchObject({ Method: 0 });
+  });
+
+  it("requires KeywordProductRanking --month on US only", async () => {
+    await expect(buildRequestBody(endpoint("KeywordProductRanking"), { keyword: "bluetooth speaker" }, "US"))
+      .rejects.toThrow(/requires --month/u);
+    await expect(buildRequestBody(endpoint("KeywordProductRanking"), { keyword: "bluetooth speaker", month: "2026-07" }, "US"))
+      .resolves.toMatchObject({ Month: "2026-07" });
+    await expect(buildRequestBody(endpoint("KeywordProductRanking"), { keyword: "bluetooth speaker" }, "DE"))
+      .resolves.toMatchObject({ Keyword: "bluetooth speaker" });
+  });
+
+  it("keeps the array encoding for parameters the API documents as arrays", async () => {
+    const body = await buildRequestBody(endpoint("CoinStream"), { queryDate: ["2026-08-01", "2026-08-31"] });
+    expect(body.QueryDate).toEqual(["2026-08-01", "2026-08-31"]);
   });
 
   it("coerces integers, JSON objects, and date strings", async () => {

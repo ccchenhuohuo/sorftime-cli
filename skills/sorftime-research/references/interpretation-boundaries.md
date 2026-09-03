@@ -2,33 +2,65 @@
 
 ## Evidence and time
 
-- Keep marketplace, source endpoint, fetched time, monitor time, and warnings attached to every conclusion.
-- Distinguish fetch time from the upstream observation time.
-- Existing monitoring and subscription data is not automatically realtime.
-- Empty data means no matching/available record under the request, not numeric zero.
+- Attach the marketplace, the endpoint, and the observation time to every number.
+- Distinguish when you fetched the data from when Sorftime observed it. Most endpoints lag; the
+  latest supported Best Sellers date is today minus 2 days.
+- Existing monitoring and subscription data is not realtime unless its own timestamp says so.
+- An empty response means no matching record under the parameters you sent. It is not a zero.
+
+## Metric semantics
+
+- Sales figures are **market estimates**, not merchant-reported revenue. Do not call them GMV,
+  actual sales, or order counts.
+- Monetary values use the marketplace's smallest currency unit. `2699` is 26.99.
+- Amounts are in site-local currency. Never add or rank local-currency amounts across
+  marketplaces; there is no exchange rate in the response.
+- A Top 100 list is a **truncated set**. Do not compute market share, brand concentration, or
+  category totals from it.
+- Historical Best Sellers rows are de-duplicated by parent ASIN, and their sales value is the last
+  day's rolling 30-day figure, not a sum over the requested range.
+- Rank and sales are different measurements. A rank change is not a sales change.
+
+## Reading an empty or rejected response
+
+Verified live 2026-09-03. These look alike in a terminal and mean different things:
+
+- **`code 11` on a keyword endpoint** means the term is not in Amazon Brand Analytics. Every
+  keyword endpoint accepts ABA terms only. It does **not** mean the phrase has no search volume.
+  Say "not an ABA keyword" and offer to find real ones via `keyword by-asin` or `keyword by-category`.
+- **`code 11` on a monitor read** means no monitor covers that node, type, and hour - or the
+  monitor exists but has no retrievable data. It is not "no market activity".
+- **`code 10`** is a malformed request, not an empty result. Report it as a request problem.
+- **`Data: null` with `Code: 0`** is a successful call that returned nothing. Treat it as no
+  matching record, and never as zero.
 
 ## Claims
 
 Allowed:
 
-- describe observed rank position, list membership, seller set, stock field, subscription snapshot, or quota state;
-- compare two explicitly selected batches when fields are compatible;
-- identify mathematical increases/decreases in observed values;
-- explain scope, missing data, rate limits, and policy restrictions.
+- describe an observed rank, list membership, price point, review distribution, or quota state;
+- compare two explicitly fetched results when the marketplace, endpoint, and time basis match;
+- point out that a value rose or fell between two observations;
+- explain scope, missing data, cost, rate limits, and policy restrictions.
 
 Not allowed:
 
-- infer causality from rank, stock, seller, or list changes;
-- claim complete Amazon market coverage from monitored tasks;
-- describe shared quota as an employee allowance;
-- invent ASIN/TaskId/ScheduleId/NodeId values;
-- treat unavailable or missing data as zero;
-- conceal that a paid query was unavailable;
-- recommend task creation/deletion through MCP.
+- infer causality - do not say a price change caused a rank change, or that a competitor's action
+  drove a result;
+- forecast, or recommend entering, exiting, pricing, or delisting;
+- claim complete Amazon coverage from a category, keyword, or monitor sample;
+- describe the shared account quota as one person's allowance;
+- invent an ASIN, NodeId, TaskId, or ScheduleId, or repair a malformed one silently;
+- present missing, unavailable, blocked, or forbidden data as zero;
+- hide that an endpoint was blocked, or substitute a different endpoint without saying so;
+- present Sorftime estimates as agreeing with another data source without checking; independent
+  estimates of the same market routinely diverge at the individual-product level even when their
+  totals are close.
 
-## Sensitive operational data
+## Cost and credentials
 
-- Do not ask for or show the Sorftime Account-SK, MCP API keys, proxy secrets, or Authorization headers.
-- Do not include employee identity fields in tool inputs. Identity is transport-derived.
-- Account usage and existing async task artifacts may reveal team activity; use them only through admin tools.
-- Preserve public `requestId` for support, but never echo server logs or raw error internals.
+- Never ask for, display, or write the Account-SK, and never accept one pasted into the chat.
+- Say what a command will cost before running it, and stop if the user has not agreed to the spend.
+- Never pass `--allow-coin` or `--force` on your own initiative.
+- The quota is shared. If you hit `500`, `501`, or `694`, report it as an account-level condition -
+  it may be caused by a colleague - and stop rather than retrying.

@@ -1,12 +1,11 @@
 {
-  "name": "sorftime-mcp",
+  "name": "sorftime-cli",
   "version": "1.0.0",
-  "description": "Governed Sorftime MCP server, AI Skill, and full operations CLI",
+  "description": "Complete Sorftime Enterprise API CLI with an AI Skill for routing and interpretation",
   "private": true,
   "type": "module",
   "bin": {
-    "sorftime": "dist/cli.js",
-    "sorftime-mcp": "dist/mcp/stdio.js"
+    "sorftime": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -18,12 +17,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup src/cli.ts src/mcp/stdio.ts src/mcp/http.ts --format esm --dts --clean",
+    "build": "tsup src/cli.ts --format esm --dts --clean",
     "dev": "tsx src/cli.ts",
-    "dev:mcp:stdio": "tsx src/mcp/stdio.ts",
-    "dev:mcp:http": "tsx watch src/mcp/http.ts",
-    "start:mcp:stdio": "node dist/mcp/stdio.js",
-    "start:mcp:http": "node dist/mcp/http.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -35,7 +30,6 @@
   },
   "keywords": [
     "sorftime",
-    "mcp",
     "agent-skill",
     "amazon",
     "seller",
@@ -44,24 +38,19 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ccchenhuohuo/sorftime-mcp.git"
+    "url": "git+https://github.com/ccchenhuohuo/sorftime-cli.git"
   },
-  "homepage": "https://github.com/ccchenhuohuo/sorftime-mcp#readme",
+  "homepage": "https://github.com/ccchenhuohuo/sorftime-cli#readme",
   "bugs": {
-    "url": "https://github.com/ccchenhuohuo/sorftime-mcp/issues"
+    "url": "https://github.com/ccchenhuohuo/sorftime-cli/issues"
   },
   "dependencies": {
     "@inquirer/prompts": "^7.8.4",
-    "@modelcontextprotocol/sdk": "1.29.0",
     "commander": "^14.0.0",
-    "dotenv": "17.4.2",
-    "express": "5.2.1",
-    "zod": "4.4.3",
     "yaml": "^2.8.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",
-    "@types/express": "5.0.6",
     "@types/node": "^24.0.14",
     "eslint": "^9.31.0",
     "tsx": "^4.20.3",

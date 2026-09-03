@@ -1,100 +1,64 @@
-# Sorftime MCP + Skill + CLI
+# Sorftime CLI + Skill
 
-[![CI](https://github.com/ccchenhuohuo/sorftime-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ccchenhuohuo/sorftime-mcp/actions/workflows/ci.yml)
+[![CI](https://github.com/ccchenhuohuo/sorftime-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/ccchenhuohuo/sorftime-cli/actions/workflows/ci.yml)
 
-面向团队共享的 Sorftime 数据接入项目。它把同一个确定性 API 核心同时提供给受治理的 MCP Server 和完整 CLI，并用 Sorftime Research Skill 指导 AI 选择安全工具、处理澄清、控制成本和解释结果。
+面向团队的 Sorftime 数据接入项目：一个覆盖全部 52 个接口的 CLI，加一份指导 AI 选命令、控成本、守口径的 Sorftime Research Skill。
 
-- **MCP Server**：同事和 AI 助手的统一入口；Token 集中保管，按身份审计和限流；首版仅开放免费只读能力。
-- **Sorftime Research Skill**：负责自然语言路由、证据边界和回答规范，不持有 Token、不执行 HTTP。
-- **CLI**：覆盖文档实际列出的全部 52 个接口，用于管理员/开发者批处理、调试、排障和应急操作。
+- **CLI**：唯一执行路径。覆盖文档实际列出的全部 52 个接口，凭据存在本机钥匙串或 0600 文件里。
+- **Sorftime Research Skill**：负责自然语言路由、成本确认、证据边界和回答规范。它不持有凭据，只调 CLI。
 
 ```mermaid
 flowchart LR
-  U["同事"] --> H["Codex / Claude / MCP Host"]
+  U["使用者"] --> H["Codex / Claude Code"]
   H --> K["Sorftime Research Skill"]
-  K --> M["Governed MCP Server"]
-  M --> C["Shared Sorftime Core"]
-  C --> A["Sorftime API"]
-  O["管理员 / 开发者"] --> L["Full CLI"]
-  L --> C
+  K --> L["sorftime CLI"]
+  L --> A["Sorftime API"]
 ```
 
-## 当前共享策略
+## 当前开放策略
 
-普通用户只看到 4 个任务型工具：
+**52 个端点开放 41 个**，其余 11 个在发出任何网络请求之前就被拒绝。
 
-| 工具 | 用途 |
-|---|---|
-| `sorftime_capabilities` | 发现当前策略、站点和管理员能力 |
-| `sorftime_list_monitors` | 列出既有关键词、榜单和 ASIN 订阅监控 |
-| `sorftime_get_monitoring_results` | 读取明确任务/批次/订阅标识对应的既有结果 |
-| `sorftime_check_quota` | 查看共享账户全局 Coin 与 Request 状态 |
+**6 个花 Coin 或成本未知**（`--allow-coin` 单次放行）：
 
-首版不开放付费查询、Coin 扣费调用、实时/AI/采集任务创建、监控增删改或 MCP `raw_call`。管理员仍可在独立运维流程中使用 CLI；Skill 不会替终端用户绕过 MCP 调 CLI。
+| 被拦命令 | 端点 | 计费 |
+|---|---|---|
+| `product reviews-collect` | `ProductReviewsCollection` | Coin |
+| `monitor best-seller-create` | `BestSellerListSubscription` | 周期性 Coin |
+| `monitor keyword-create` | `KeywordBatchSubscription` | 周期性 Coin |
+| `monitor seller-create` | `ProductSellerSubscription` | 周期性 Coin |
+| `monitor asin-update` | `ASINSubscription` | 周期性 Coin |
+| `keyword favorite-list` | `GetFavoriteKeyword` | 文档未标明成本，失败关闭 |
 
-可选管理员 MCP 工具也保持免费只读，并且只有在 `MCP_ENABLE_ADMIN_TOOLS=true` 且身份角色为 `admin` 时才会出现在工具列表中。
+**5 个会改动共享账号状态**（`--allow-write` 单次放行）：
+
+| 被拦命令 | 端点 | 后果 |
+|---|---|---|
+| `keyword favorite-add` | `FavoriteKeyword` | 写入共享关键词词库 |
+| `keyword favorite-change` | `ChangeFavoriteKeyword` | 移动或删除词库条目；请求体无文档 |
+| `monitor keyword-update` | `KeywordBatchTaskUpdate` | `Update=9` 即删除关键词监控 |
+| `monitor best-seller-delete` | `BestSellerListDelete` | 删除榜单监控，**不可恢复** |
+| `monitor seller-update` | `ProductSellerTaskUpdate` | 修改或删除卖家/库存监控 |
+
+用这个 CLI 的人拿的是同一把账号级凭据，所以写操作不是「改我自己的数据」，是改所有同事看到的东西。
+
+两道闸都在 `runner.ts` 里，因此对 `sorftime api call` 同样生效；注册表里没有的端点一律按「成本未知」走失败关闭路径。
+
+分类见 [`src/policy.ts`](src/policy.ts)，`sorftime endpoints` 会把 `BILLING` 和 `STATUS` 两列一起打出来。
+
+**request 配额是账号全局的**，不是每人一份。`500`（月度上限）、`501`（每分钟上限）、`694`（次数不足）都可能是同事触发的，遇到就停，不要重试。
 
 ## 文档入口
 
 | 内容 | 文档 |
 |---|---|
-| 使用、安装、MCP/Skill/CLI 入口 | 本 README |
-| 系统分层、身份、策略和请求链路 | [架构设计](docs/architecture.md) |
-| MCP 与 Skill 的协作协议 | [MCP × Skill 联动](docs/mcp-skill-integration.md) |
-| 身份网关、Secret、容器和上线清单 | [部署与生产检查](docs/deployment.md) |
-| Codex/AI 开发规则（不是用户文档） | [AGENTS.md](AGENTS.md) |
+| 使用、安装、认证、命令 | 本 README |
+| CLI 与 Skill 的协作协议 | [CLI × Skill 联动](docs/cli-skill-integration.md) |
+| 分发、凭据与团队上线清单 | [部署与团队分发](docs/deployment.md) |
+| AI 编码代理开发规则（不是用户文档） | [AGENTS.md](AGENTS.md) |
 | Claude Code 项目路由 | [CLAUDE.md](CLAUDE.md) |
 
-## MCP 快速开始
-
-要求 Node.js 20+ 与 pnpm 11：
-
-```bash
-corepack enable
-pnpm install --frozen-lockfile
-cp .env.example .env
-```
-
-在 `.env` 中配置服务端 `SORFTIME_ACCOUNT_SK`。不要把 Token 放进客户端配置或分发给同事。
-
-本地 Streamable HTTP：
-
-```bash
-pnpm dev:mcp:http
-# MCP:    http://127.0.0.1:3000/mcp
-# health: http://127.0.0.1:3000/healthz
-# ready:  http://127.0.0.1:3000/readyz
-```
-
-本地 stdio：
-
-```bash
-pnpm build
-pnpm start:mcp:stdio
-```
-
-通用 stdio Host 配置：
-
-```json
-{
-  "mcpServers": {
-    "sorftime": {
-      "command": "node",
-      "args": ["/absolute/path/to/sorftime-mcp/dist/mcp/stdio.js"],
-      "env": {
-        "SORFTIME_ACCOUNT_SK_FILE": "/secure/path/sorftime-account-sk",
-        "MCP_STDIO_SUBJECT": "local-operator",
-        "MCP_STDIO_TENANT": "local",
-        "MCP_STDIO_ROLE": "reader"
-      }
-    }
-  }
-}
-```
-
-stdio 只适合本机/单身份运行；正式团队共享建议使用公司 OAuth/OIDC 网关和 `trusted_headers` 模式。详细生产要求见 [部署文档](docs/deployment.md)。
-
-安装 Skill：
+## 安装 Skill
 
 ```bash
 export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
@@ -102,7 +66,7 @@ mkdir -p "$CODEX_HOME/skills"
 cp -R skills/sorftime-research "$CODEX_HOME/skills/sorftime-research"
 ```
 
-重新加载 Host 并连接 MCP 后，可显式调用 `$sorftime-research`。
+Claude Code 则复制到 `.claude/skills/sorftime-research`。重新加载 Host 后可显式调用 `$sorftime-research`。Skill 只在 `sorftime` 可执行且 `sorftime auth status` 通过时才能工作。
 
 ## CLI 要求与安装
 
@@ -392,10 +356,13 @@ For known task-creating and mutating endpoints, `--retries` is rejected unless y
 
 Particularly important costs and side effects include:
 
-- historical category requests, long product trends, and batch ASIN lookups;
-- review collection and monitoring, which can consume coin points;
-- realtime crawls, image search, and AI analysis;
-- favorite, subscription, task update, pause/start, and delete commands.
+- historical category requests: `category best-sellers` with a date range costs 10 requests per 3-day block, rounded up, so a 30-day window is about 100 requests;
+- `agent product` and `agent category`, at 25 requests each;
+- long product trends and batch ASIN lookups, billed per ASIN;
+- realtime crawls and image search, which create server-side tasks;
+- favorite, task update, and pause/start commands.
+
+Coin-spending endpoints are blocked outright rather than merely warned about; see 当前计费策略 above.
 
 ## Known source-document limitations
 
@@ -411,14 +378,17 @@ The CLI deliberately avoids inventing undocumented API behavior:
 - Asynchronous APIs use different status lookup keys and incomplete status schemas. Use each family's explicit start, status, and result commands; there is no generic wait/poll command.
 - File export/download behavior is not documented. Image search accepts local input, but returned image URLs and AI HTML/Markdown are not downloaded automatically.
 
+- Three parameters the source marks optional are rejected by the API without them (verified live 2026-09-03, business code 10). The CLI now validates them locally: `KeywordQuery.Pattern`, `AIResultQuery.QueryStart`/`QueryEnd`, and `KeywordProductRanking.Month` on the US marketplace.
+- `ProductRequest.ASIN` is documented as accepting a batch array, but a JSON array returns `Code 0` with `Data: null` and no charge at any length. Only a comma-separated string works, so the CLI serializes it that way.
+- `CategoryTree` is slow and large: measured live on US at 6m33s, 10.4 MB, 35,126 nodes. The endpoint default timeout is 900 s for that reason; always write the result to a file rather than stdout.
+- Keyword endpoints accept Amazon Brand Analytics terms only. A non-ABA phrase returns business code 11, which means "not an ABA keyword", not "no search volume".
+
 Consult `sorftime <group> <command> --help` and `sorftime endpoints --json` for what the CLI can validate locally. Server behavior and billing remain authoritative.
 
 ## Security
 
-- MCP 的 Sorftime Token 只存在于服务端环境或挂载的 Secret 文件；普通用户和 Skill 永远不接触它。
-- HTTP 身份来自逐用户 API Key 或受信公司网关注入的身份头。Session 会绑定身份，工具参数不能伪造用户、租户或角色。
-- MCP 审计只记录身份、工具、固定端点、站点、输入指纹、决策和耗时，不记录完整关键词/ASIN 列表、请求体、Token 或上游结果。
-- 当前限流、Session 和 billing circuit 是单进程状态；多副本部署前必须增加共享存储或明确使用粘性路由和单副本策略。
+- 每台装了 CLI 的机器上都有一份 Account-SK。Sorftime 的鉴权只有账号级 Account-SK，**没有按人分发的子令牌**，所以分发一次就等于把账号级凭据复制一份；谁泄漏的无法从上游区分。轮换凭据必须所有人同时换。
+- 同样地，配额和限流都是账号全局的，本地 CLI 没有跨机器的用量视图。谁花了多少，只能靠 `sorftime account request-stream` 看总量，看不到分人明细。
 - Prefer `sorftime auth login` or an injected environment secret. Never include a real credential in shell arguments, committed files, logs, test fixtures, or support bundles.
 - `--verbose` never prints the credential and replaces image payloads with a length marker. Raw request fields other than image data are printed, so do not place unrelated secrets in a request body when verbose mode is enabled.
 - Custom `--base-url`, `SORFTIME_BASE_URL`, and config `base-url` values receive the credential. Use only endpoints you control and trust. The CLI requires HTTPS, except that plain HTTP is allowed for `localhost`, `127.0.0.1`, and `::1` testing.
@@ -430,14 +400,16 @@ Consult `sorftime <group> <command> --help` and `sorftime endpoints --json` for 
 
 ```text
 .
-├── src/core/                    # CLI 与 MCP 共用 API core / governance
-├── src/mcp/                     # 工具、策略、身份、审计、限流与 transport
-├── src/cli.ts + src/runner.ts   # 完整运维 CLI
+├── src/cli.ts + src/runner.ts   # 命令表与执行编排
+├── src/endpoints.ts             # 全部 52 个端点与参数注册表
+├── src/billing.ts               # 计费分类与 Coin 硬闸
+├── src/service.ts               # 确定性 API 执行核心
+├── src/client.ts                # HTTP/信封/超时/体积处理
 ├── skills/sorftime-research/    # AI 路由与解释 Skill
-├── docs/                        # 架构、联动和部署文档
-├── test/                        # CLI/Core/MCP/HTTP/Skill 合约测试
+├── docs/                        # 联动与分发文档
+├── test/                        # CLI/核心/计费/Skill 合约测试
 ├── AGENTS.md                    # AI 编码代理权威项目说明
-└── README.md                    # 人类使用者和运维人员文档
+└── README.md                    # 人类使用者文档
 ```
 
 ## License
