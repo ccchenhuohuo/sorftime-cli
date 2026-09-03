@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -46,9 +47,21 @@ interface RouteRow {
   cost: string;
 }
 
+// Derive the binary name from package.json so renaming the bin cannot silently
+// break this guard the way a hardcoded literal did.
+const BIN_NAME = Object.keys(
+  (JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8")) as { bin: Record<string, string> }).bin,
+)[0]!;
+
 function routeTableRows(skill: string): RouteRow[] {
+  // Assembled from a plain string rather than String.raw: an escaped backtick is
+  // an invalid identity escape under the u flag and throws at construction time.
+  const tick = "`";
+  const cell = `${tick}([^${tick}]+)${tick}`;
+  const commandCell = `${tick}(${BIN_NAME} [^${tick}]+)${tick}`;
+  const rowPattern = new RegExp(`^\\| [^|]+ \\| ${cell} \\| ${commandCell} \\| ${cell} \\|$`, "u");
   return skill.split("\n").flatMap((line) => {
-    const match = /^\| [^|]+ \| `([^`]+)` \| `(sorftime [^`]+)` \| `([^`]+)` \|$/u.exec(line);
+    const match = rowPattern.exec(line);
     return match?.[1] && match[2] && match[3]
       ? [{ endpoint: match[1], command: match[2], cost: match[3] }]
       : [];
@@ -76,7 +89,7 @@ describe("sorftime-research Skill contract", () => {
 
   it("routes through the CLI and carries no MCP surface", async () => {
     const sources = await allText();
-    for (const command of ["sorftime auth status", "sorftime endpoints", "sorftime account request-stream"]) {
+    for (const command of ["sorftime-team auth status", "sorftime-team endpoints", "sorftime-team account request-stream"]) {
       expect(sources).toContain(command);
     }
     expect(sources).not.toMatch(/\bMCP\b/u);

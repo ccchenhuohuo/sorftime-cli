@@ -255,7 +255,7 @@ export async function runEndpoint(
   const tokenResult = await dependencies.resolveToken();
   throwIfAborted(signal);
   if (!tokenResult.token) {
-    throw new AuthenticationError("No Account-SK configured. Run 'sorftime auth login' or set SORFTIME_ACCOUNT_SK.");
+    throw new AuthenticationError("No Account-SK configured. Run 'sorftime-team auth login' or set SORFTIME_ACCOUNT_SK.");
   }
 
   const core = dependencies.createCoreClient({

@@ -93,7 +93,7 @@ function validateConfigValue(key: string, value: string): StoredConfig {
       return { output: value as OutputFormat };
     }
     case "token": case "account-sk": case "authorization":
-      throw new ValidationError("Credentials cannot be stored with config set; use 'sorftime auth login'.");
+      throw new ValidationError("Credentials cannot be stored with config set; use 'sorftime-team auth login'.");
     default: throw new ValidationError("Config key must be one of: domain, base-url, timeout, output.");
   }
 }
@@ -208,13 +208,13 @@ export function resolveApiCallEndpoint(endpointName: string): EndpointSpec {
   if (commandMatches.length > 1) {
     throw new ValidationError(`Ambiguous command name '${endpointName}'. Use the exact API endpoint name instead.`);
   }
-  throw new ValidationError(`Unknown Sorftime endpoint '${endpointName}'. Run 'sorftime endpoints' to list registered endpoints.`);
+  throw new ValidationError(`Unknown Sorftime endpoint '${endpointName}'. Run 'sorftime-team endpoints' to list registered endpoints.`);
 }
 
 export function createProgram(): Command {
   const program = new Command();
   program
-    .name("sorftime")
+    .name("sorftime-team")
     .description("Complete CLI for the Sorftime Enterprise API")
     .version(VERSION)
     .showSuggestionAfterError()

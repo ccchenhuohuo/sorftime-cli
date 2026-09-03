@@ -205,7 +205,7 @@ describe("runner guard ordering and registry fidelity", () => {
   });
 
   it("rejects unknown api-call names with registry discovery guidance", () => {
-    expect(() => resolveApiCallEndpoint("FutureEndpoint")).toThrow(/sorftime endpoints/u);
+    expect(() => resolveApiCallEndpoint("FutureEndpoint")).toThrow(/sorftime-team endpoints/u);
   });
 
   it("uses registry history metadata even when a historical endpoint omits optional dates", async () => {

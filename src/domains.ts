@@ -32,7 +32,7 @@ export function resolveDomain(input: string | number | undefined): DomainDefinit
     (item) => item.id === numeric || item.code.toLowerCase() === value || item.aliases.includes(value),
   );
   if (!domain) {
-    throw new ValidationError(`Unsupported domain '${String(input)}'. Run 'sorftime domains' to list valid values.`);
+    throw new ValidationError(`Unsupported domain '${String(input)}'. Run 'sorftime-team domains' to list valid values.`);
   }
   return domain;
 }

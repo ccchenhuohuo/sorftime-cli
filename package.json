@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "sorftime": "dist/cli.js"
+    "sorftime-team": "dist/cli.js"
   },
   "files": [
     "dist",

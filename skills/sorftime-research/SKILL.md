@@ -5,7 +5,7 @@ description: "Query Amazon marketplace data through the local Sorftime CLI - cat
 
 # Sorftime Research
 
-The `sorftime` CLI is the execution and policy boundary. This Skill routes intent to a command,
+The `sorftime-team` CLI is the execution and policy boundary. This Skill routes intent to a command,
 confirms cost before spending, and bounds interpretation of what comes back. Run commands with
 Bash; never ask the user for the Account-SK and never print it.
 
@@ -14,17 +14,17 @@ Bash; never ask the user for the Account-SK and never print it.
 Check that a credential is available:
 
 ```bash
-sorftime auth status
+sorftime-team auth status
 ```
 
-If it reports "Not authenticated", stop and tell the user to run `sorftime auth login`. Do not
+If it reports "Not authenticated", stop and tell the user to run `sorftime-team auth login`. Do not
 attempt to authenticate for them.
 
 When you are unsure whether an endpoint exists, what it costs, or whether it is blocked, ask the
 CLI instead of guessing:
 
 ```bash
-sorftime endpoints --group category
+sorftime-team endpoints --group category
 ```
 
 Trust that output over anything remembered. It is generated from the endpoint registry and shows
@@ -32,7 +32,7 @@ the billing kind and blocked status of all 52 endpoints (41 open, 11 blocked).
 
 ## Cost is the main constraint
 
-Before proposing an API command, use `sorftime endpoints --json` or endpoint help to verify its
+Before proposing an API command, use `sorftime-team endpoints --json` or endpoint help to verify its
 current billing. `free` means zero request-quota and zero Coin cost. Any `request`, `coin`,
 `recurring_coin`, or `unknown` call requires you to name the endpoint, marketplace, and estimated
 cost and obtain the user's agreement before executing it. For a batch or workflow, also report and
@@ -42,7 +42,7 @@ a per-person allowance.
 The following free call can show the shared request balance without consuming it:
 
 ```bash
-sorftime account request-stream
+sorftime-team account request-stream
 ```
 
 Rules that keep spend predictable:
@@ -96,24 +96,24 @@ Prefix every marketplace command with the marketplace: `-d us`, `-d de`, `-d jp`
 
 | Intent | Endpoint | Command | Documented cost |
 |---|---|---|---|
-| Category Top 100 or date-range Best Sellers | `CategoryRequest` | `sorftime -d us category best-sellers --node-id <NodeId>` | `5 realtime; 10 per historical 3-day block` |
-| Category structure / NodeId lookup | `CategoryTree` | `sorftime -d us category tree` | `5 requests` |
-| Hot products in a category | `CategoryProducts` | `sorftime -d us category products --node-id <NodeId>` | `5 requests` |
-| Category-level metric over time | `CategoryTrend` | `sorftime -d us category trend --node-id <NodeId> --trend-index <0-15>` | `5 requests` |
-| Product detail and trends | `ProductRequest` | `sorftime -d us product get --asin <ASIN>` | `1 per ASIN; 2 for trends longer than 15 days` |
-| Amazon-reported child-ASIN sales | `AsinSalesVolume` | `sorftime -d us product sales-volume --asin <ASIN>` | `1 request` |
-| Find products by brand/price/BSR/fulfilment | `ProductQuery` | `sorftime -d us product search --query-type <1-16> --pattern <value>` | `5 requests` |
-| Read already-collected reviews | `ProductReviewsQuery` | `sorftime -d us product reviews-list --asin <ASIN>` | `5 requests` |
-| Keyword search volume and CPC | `KeywordRequest` | `sorftime -d us keyword get --keyword <keyword>` | `1 request` |
-| Keywords for an ASIN | `ASINRequestKeyword` | `sorftime -d us keyword by-asin --asin <ASIN>` | `1 request` |
-| Keywords for a category | `CategoryRequestKeyword` | `sorftime -d us keyword by-category --node-id <NodeId>` | `1 request` |
-| ASIN rank trend under a keyword | `ASINKeywordRanking` | `sorftime -d us keyword asin-ranking --keyword <keyword> --asin <ASIN>` | `2 requests` |
-| Existing Best Seller monitor results | `BestSellerListDataCollect` | `sorftime -d us monitor best-seller-data --node-id <NodeId> --best-seller-list-type 5 --query-date "<YYYY-MM-DD HH>"` | `free` |
-| Shared request balance | `RequestStreamMonth` | `sorftime account request-stream` | `free` |
-| Shared Coin balance | `CoinQuery` | `sorftime account coins` | `free` |
+| Category Top 100 or date-range Best Sellers | `CategoryRequest` | `sorftime-team -d us category best-sellers --node-id <NodeId>` | `5 realtime; 10 per historical 3-day block` |
+| Category structure / NodeId lookup | `CategoryTree` | `sorftime-team -d us category tree` | `5 requests` |
+| Hot products in a category | `CategoryProducts` | `sorftime-team -d us category products --node-id <NodeId>` | `5 requests` |
+| Category-level metric over time | `CategoryTrend` | `sorftime-team -d us category trend --node-id <NodeId> --trend-index <0-15>` | `5 requests` |
+| Product detail and trends | `ProductRequest` | `sorftime-team -d us product get --asin <ASIN>` | `1 per ASIN; 2 for trends longer than 15 days` |
+| Amazon-reported child-ASIN sales | `AsinSalesVolume` | `sorftime-team -d us product sales-volume --asin <ASIN>` | `1 request` |
+| Find products by brand/price/BSR/fulfilment | `ProductQuery` | `sorftime-team -d us product search --query-type <1-16> --pattern <value>` | `5 requests` |
+| Read already-collected reviews | `ProductReviewsQuery` | `sorftime-team -d us product reviews-list --asin <ASIN>` | `5 requests` |
+| Keyword search volume and CPC | `KeywordRequest` | `sorftime-team -d us keyword get --keyword <keyword>` | `1 request` |
+| Keywords for an ASIN | `ASINRequestKeyword` | `sorftime-team -d us keyword by-asin --asin <ASIN>` | `1 request` |
+| Keywords for a category | `CategoryRequestKeyword` | `sorftime-team -d us keyword by-category --node-id <NodeId>` | `1 request` |
+| ASIN rank trend under a keyword | `ASINKeywordRanking` | `sorftime-team -d us keyword asin-ranking --keyword <keyword> --asin <ASIN>` | `2 requests` |
+| Existing Best Seller monitor results | `BestSellerListDataCollect` | `sorftime-team -d us monitor best-seller-data --node-id <NodeId> --best-seller-list-type 5 --query-date "<YYYY-MM-DD HH>"` | `free` |
+| Shared request balance | `RequestStreamMonth` | `sorftime-team account request-stream` | `free` |
+| Shared Coin balance | `CoinQuery` | `sorftime-team account coins` | `free` |
 
 For the exact flag names of any endpoint, read its help rather than guessing:
-`sorftime category best-sellers --help`.
+`sorftime-team category best-sellers --help`.
 
 ## Clarify before calling
 

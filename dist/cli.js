@@ -346,7 +346,7 @@ function normalizeStoredConfig(value) {
   const raw = value;
   const secretKey = Object.keys(raw).find((key) => SECRET_CONFIG_KEY.test(key));
   if (secretKey) {
-    throw new ValidationError(`Secret-like key '${secretKey}' is not allowed in config.json. Remove it and use 'sorftime auth login'.`);
+    throw new ValidationError(`Secret-like key '${secretKey}' is not allowed in config.json. Remove it and use 'sorftime-team auth login'.`);
   }
   const config = {};
   if (raw.domain !== void 0) {
@@ -495,7 +495,7 @@ function resolveDomain(input) {
     (item) => item.id === numeric || item.code.toLowerCase() === value || item.aliases.includes(value)
   );
   if (!domain) {
-    throw new ValidationError(`Unsupported domain '${String(input)}'. Run 'sorftime domains' to list valid values.`);
+    throw new ValidationError(`Unsupported domain '${String(input)}'. Run 'sorftime-team domains' to list valid values.`);
   }
   return domain;
 }
@@ -1916,7 +1916,7 @@ async function runEndpoint(endpoint, commandOptions, globalOptions2, signal, dep
   const tokenResult = await dependencies.resolveToken();
   throwIfAborted2(signal);
   if (!tokenResult.token) {
-    throw new AuthenticationError("No Account-SK configured. Run 'sorftime auth login' or set SORFTIME_ACCOUNT_SK.");
+    throw new AuthenticationError("No Account-SK configured. Run 'sorftime-team auth login' or set SORFTIME_ACCOUNT_SK.");
   }
   const core = dependencies.createCoreClient({
     token: tokenResult.token,
@@ -2021,7 +2021,7 @@ function validateConfigValue(key, value) {
     case "token":
     case "account-sk":
     case "authorization":
-      throw new ValidationError("Credentials cannot be stored with config set; use 'sorftime auth login'.");
+      throw new ValidationError("Credentials cannot be stored with config set; use 'sorftime-team auth login'.");
     default:
       throw new ValidationError("Config key must be one of: domain, base-url, timeout, output.");
   }
@@ -2134,11 +2134,11 @@ function resolveApiCallEndpoint(endpointName) {
   if (commandMatches.length > 1) {
     throw new ValidationError(`Ambiguous command name '${endpointName}'. Use the exact API endpoint name instead.`);
   }
-  throw new ValidationError(`Unknown Sorftime endpoint '${endpointName}'. Run 'sorftime endpoints' to list registered endpoints.`);
+  throw new ValidationError(`Unknown Sorftime endpoint '${endpointName}'. Run 'sorftime-team endpoints' to list registered endpoints.`);
 }
 function createProgram() {
   const program = new Command();
-  program.name("sorftime").description("Complete CLI for the Sorftime Enterprise API").version(VERSION).showSuggestionAfterError().showHelpAfterError().option("-d, --domain <domain>", "Amazon marketplace ID/code (default: us)").option("--base-url <url>", "API base URL (remote origins also require deployment trust)").option("--timeout <seconds>", "Request timeout in seconds (1-3600)").option("--retries <count>", "Retry transient transport/HTTP failures (0-5; default: 0)").option("--retry-unsafe", "Allow requested retries for task-creating or mutating endpoints").option("--all-pages", "Fetch and aggregate every page for supported list endpoints").option("--max-pages <count>", "Safety cap for --all-pages (1-1000; default: 100)").option("--page-delay <milliseconds>", "Delay between pages (0-60000; default: 0)").addOption(new Option("-o, --output <format>", "Output format").choices([...OUTPUT_FORMATS])).option("--data-only", "Output only the Data/data field from the response envelope").option("--select <path>", "Select a dot-separated response path").option("--output-file <path>", "Write output atomically to a file").option("--compact", "Emit compact JSON").option("--verbose", "Print safe request diagnostics to stderr (credentials are never printed)").option("--force", "Bypass marketplace history-support guardrails").option("--allow-coin", "Permit one call to a Coin-spending endpoint (blocked by default)").option("--allow-write", "Permit one call that changes shared account state (blocked by default)");
+  program.name("sorftime-team").description("Complete CLI for the Sorftime Enterprise API").version(VERSION).showSuggestionAfterError().showHelpAfterError().option("-d, --domain <domain>", "Amazon marketplace ID/code (default: us)").option("--base-url <url>", "API base URL (remote origins also require deployment trust)").option("--timeout <seconds>", "Request timeout in seconds (1-3600)").option("--retries <count>", "Retry transient transport/HTTP failures (0-5; default: 0)").option("--retry-unsafe", "Allow requested retries for task-creating or mutating endpoints").option("--all-pages", "Fetch and aggregate every page for supported list endpoints").option("--max-pages <count>", "Safety cap for --all-pages (1-1000; default: 100)").option("--page-delay <milliseconds>", "Delay between pages (0-60000; default: 0)").addOption(new Option("-o, --output <format>", "Output format").choices([...OUTPUT_FORMATS])).option("--data-only", "Output only the Data/data field from the response envelope").option("--select <path>", "Select a dot-separated response path").option("--output-file <path>", "Write output atomically to a file").option("--compact", "Emit compact JSON").option("--verbose", "Print safe request diagnostics to stderr (credentials are never printed)").option("--force", "Bypass marketplace history-support guardrails").option("--allow-coin", "Permit one call to a Coin-spending endpoint (blocked by default)").option("--allow-write", "Permit one call that changes shared account state (blocked by default)");
   installAuthCommands(program);
   installConfigCommands(program);
   installUtilityCommands(program);

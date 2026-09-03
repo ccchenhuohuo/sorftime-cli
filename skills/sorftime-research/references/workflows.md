@@ -10,14 +10,14 @@ A category name is not a NodeId. Resolve it first.
 ```bash
 # 5 requests. Measured live on US: 6m33s, 10.4 MB, 35,126 nodes.
 # Always write it to a file, and tell the user it will take several minutes.
-sorftime -d us category tree --output-file /tmp/us-category-tree.json
+sorftime-team -d us category tree --output-file /tmp/us-category-tree.json
 ```
 
 Then search that file locally for the leaf node. Local reads are free; re-fetching the tree is not.
 Once you have the NodeId:
 
 ```bash
-sorftime -d us category best-sellers --node-id 11139610011   # 5 requests, Top 100
+sorftime-team -d us category best-sellers --node-id 11139610011   # 5 requests, Top 100
 ```
 
 ## Best Sellers over a date range
@@ -30,7 +30,7 @@ block, rounded up**. Compute the cost before running and say it out loud:
 - 40 days (the documented maximum span) = 14 blocks = 140 requests
 
 ```bash
-sorftime -d us category best-sellers --node-id 11139610011 \
+sorftime-team -d us category best-sellers --node-id 11139610011 \
   --query-start 2026-08-01 --query-date 2026-08-07
 ```
 
@@ -45,8 +45,8 @@ The latest supported date is today minus 2 days.
 ## Product detail and daily trends
 
 ```bash
-sorftime -d us product get --asin B0XXXXXXXX             # 1 request
-sorftime -d us product get --asin B0XXXXXXXX --trend 1 \
+sorftime-team -d us product get --asin B0XXXXXXXX             # 1 request
+sorftime-team -d us product get --asin B0XXXXXXXX --trend 1 \
   --query-trend-start-dt 2026-07-01 --query-trend-end-dt 2026-08-31   # 2 requests, span > 15 days
 ```
 
@@ -64,26 +64,26 @@ Three flows are start-poll-fetch. Poll manually with the user's agreement; never
 **Realtime product refresh** - forces a fresh crawl rather than reusing cached data:
 
 ```bash
-sorftime -d us product realtime-start --asin B0XXXXXXXX --update 24   # 1 request (JP 2)
-sorftime -d us product realtime-status --query-date 2026-09-01        # 1 request
-sorftime -d us product get --asin B0XXXXXXXX                          # 1 request
+sorftime-team -d us product realtime-start --asin B0XXXXXXXX --update 24   # 1 request (JP 2)
+sorftime-team -d us product realtime-status --query-date 2026-09-01        # 1 request
+sorftime-team -d us product get --asin B0XXXXXXXX                          # 1 request
 ```
 
 **Image similarity search** - roughly 5 minutes, expect 20+ results:
 
 ```bash
-sorftime -d us product similar-start --image @/path/to/photo.jpg   # 5 requests (JP 6)
-sorftime -d us product similar-status                              # free
-sorftime -d us product similar-results --task-id <id>              # free
+sorftime-team -d us product similar-start --image @/path/to/photo.jpg   # 5 requests (JP 6)
+sorftime-team -d us product similar-status                              # free
+sorftime-team -d us product similar-results --task-id <id>              # free
 ```
 
 **Sorftime Agent** - 25 requests per report. Prefer reading the underlying data yourself:
 
 ```bash
-sorftime -d us agent product --asin B0XXXXXXXX --type 0   # 25 requests
-sorftime -d us agent status --method 0 \
+sorftime-team -d us agent product --asin B0XXXXXXXX --type 0   # 25 requests
+sorftime-team -d us agent status --method 0 \
   --query-start 2026-08-28 --query-end 2026-09-03         # 1 request
-sorftime -d us agent result --task-id <id>                # free
+sorftime-team -d us agent result --task-id <id>                # free
 ```
 
 `realtime-start`, `similar-start`, and the two `agent` starters create server-side tasks. Retrying
@@ -95,8 +95,8 @@ pass it.
 Creating monitors is blocked, but reading whatever already exists is free.
 
 ```bash
-sorftime -d us monitor best-seller-list                    # what is subscribed
-sorftime -d us monitor best-seller-data --node-id 11139610011 \
+sorftime-team -d us monitor best-seller-list                    # what is subscribed
+sorftime-team -d us monitor best-seller-data --node-id 11139610011 \
   --best-seller-list-type 5 --query-date "2026-09-01 06"   # one window
 ```
 
@@ -112,8 +112,8 @@ activity. Monitoring data is documented as retained about 30 days.
 `product reviews-collect` is blocked, so only previously collected reviews are readable:
 
 ```bash
-sorftime -d us product reviews-status --asin B0XXXXXXXX   # free, is anything collected?
-sorftime -d us product reviews-list --asin B0XXXXXXXX --star 10   # 5 requests
+sorftime-team -d us product reviews-status --asin B0XXXXXXXX   # free, is anything collected?
+sorftime-team -d us product reviews-list --asin B0XXXXXXXX --star 10   # 5 requests
 ```
 
 `--star` accepts `1`-`5`, `10` for negative (1-3 stars), `11` for positive (4-5 stars).
@@ -131,14 +131,14 @@ invented will return `code 11`, which means "not an ABA keyword", not "no search
 Start from a real ASIN or category rather than a guess:
 
 ```bash
-sorftime -d us keyword by-asin --asin B0XXXXXXXX --page-size 20        # 1 request
-sorftime -d us keyword by-category --node-id 11139610011 --page-size 20 # 1 request
+sorftime-team -d us keyword by-asin --asin B0XXXXXXXX --page-size 20        # 1 request
+sorftime-team -d us keyword by-category --node-id 11139610011 --page-size 20 # 1 request
 ```
 
 Then feed a returned term into the detail endpoints:
 
 ```bash
-sorftime -d us keyword get --keyword "mini tripod iphone"   # 1 request
+sorftime-team -d us keyword get --keyword "mini tripod iphone"   # 1 request
 ```
 
 Three parameters the source documentation marks optional are rejected without (verified live
@@ -151,8 +151,8 @@ Three parameters the source documentation marks optional are rejected without (v
 ## Pagination
 
 ```bash
-sorftime -d us category products --node-id 11139610011 --page 1      # look first
-sorftime -d us category products --node-id 11139610011 \
+sorftime-team -d us category products --node-id 11139610011 --page 1      # look first
+sorftime-team -d us category products --node-id 11139610011 \
   --all-pages --max-pages 5 --page-delay 500                          # then bound it
 ```
 

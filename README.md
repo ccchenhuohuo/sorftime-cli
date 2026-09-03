@@ -39,10 +39,10 @@ flowchart LR
 
 用这个 CLI 的人拿的是同一把账号级凭据，所以写操作不是「改我自己的数据」，是改所有同事看到的东西。
 
-两道闸都在 `runner.ts` 里，因此对 `sorftime api call` 同样生效。`api call` 只接受注册表中的
-端点；未知名称会直接拒绝并提示运行 `sorftime endpoints`。
+两道闸都在 `runner.ts` 里，因此对 `sorftime-team api call` 同样生效。`api call` 只接受注册表中的
+端点；未知名称会直接拒绝并提示运行 `sorftime-team endpoints`。
 
-分类见 [`src/policy.ts`](src/policy.ts)，`sorftime endpoints` 会把 `BILLING` 和 `STATUS` 两列一起打出来。
+分类见 [`src/policy.ts`](src/policy.ts)，`sorftime-team endpoints` 会把 `BILLING` 和 `STATUS` 两列一起打出来。
 
 **request 配额是账号全局的**，不是每人一份。`500`（月度上限）、`501`（每分钟上限）、`694`（次数不足）都可能是同事触发的，遇到就停，不要重试。
 
@@ -64,21 +64,33 @@ mkdir -p "$CODEX_HOME/skills"
 cp -R skills/sorftime-research "$CODEX_HOME/skills/sorftime-research"
 ```
 
-Claude Code 则复制到 `.claude/skills/sorftime-research`。重新加载 Host 后可显式调用 `$sorftime-research`。Skill 只在 `sorftime` 可执行且 `sorftime auth status` 通过时才能工作。
+Claude Code 则复制到 `.claude/skills/sorftime-research`。重新加载 Host 后可显式调用 `$sorftime-research`。Skill 只在 `sorftime-team` 可执行且 `sorftime-team auth status` 通过时才能工作。
 
-## CLI 要求与安装
+## 安装
 
-- Node.js 20 or later
-- pnpm 11 (the repository pins `pnpm@11.7.0`)
+需要 Node.js 20+。从 Release 的 tarball 一条命令装好，不需要 clone、不需要构建工具：
 
-Build and install from this repository:
+```bash
+npm install -g https://github.com/ccchenhuohuo/sorftime-cli/releases/latest/download/sorftime-cli.tgz
+sorftime-team --version
+```
+
+升级就是重跑同一条命令。
+
+> 命令名是 `sorftime-team`，不是 `sorftime`。服务商官方 CLI（`npm install -g sorftime-cli`）
+> 占用了 `sorftime` 这个命令名，两者可以共存互不干扰。
+
+**不要用 `npm install -g github:ccchenhuohuo/sorftime-cli`**：npm 的全局 git 安装会静默地
+只建一个空符号链接，报告 "added N packages" 却不装任何可执行文件，没有任何错误提示。
+
+从源码安装（需要 pnpm 11，仓库钉在 `pnpm@11.7.0`）：
 
 ```bash
 corepack enable
 pnpm install --frozen-lockfile
 pnpm build
 npm install -g .
-sorftime --version
+sorftime-team --version
 ```
 
 For local development, no global install is required:
@@ -100,8 +112,8 @@ The CLI needs a Sorftime credential for API calls. Never put the real value in s
 Interactive login uses a hidden prompt:
 
 ```bash
-sorftime auth login
-sorftime auth status
+sorftime-team auth login
+sorftime-team auth status
 ```
 
 Login stores the credential in `credentials.json` in the CLI config directory with mode `0600`; the directory is created with mode `0700`. This avoids placing the credential in process arguments. Existing credentials from older releases in macOS Keychain remain readable and can be removed with `auth logout`.
@@ -113,7 +125,7 @@ Login stores the credential in `credentials.json` in the CLI config directory wi
 For scripts, pass the credential through standard input rather than a command-line argument:
 
 ```bash
-printf '%s' "$SORFTIME_ACCOUNT_SK" | sorftime auth login --token-stdin
+printf '%s' "$SORFTIME_ACCOUNT_SK" | sorftime-team auth login --token-stdin
 ```
 
 You may also use an environment-only credential without saving it:
@@ -121,13 +133,13 @@ You may also use an environment-only credential without saving it:
 ```bash
 read -rsp 'Sorftime credential: ' SORFTIME_ACCOUNT_SK; echo
 export SORFTIME_ACCOUNT_SK
-sorftime auth status
+sorftime-team auth status
 ```
 
 Remove saved credentials with:
 
 ```bash
-sorftime auth logout
+sorftime-team auth logout
 ```
 
 Credential lookup order is:
@@ -143,16 +155,16 @@ Set `SORFTIME_CREDENTIAL_STORE=file` to disable lookup of an older Keychain item
 List supported marketplaces and all implemented endpoints:
 
 ```bash
-sorftime domains
-sorftime endpoints
-sorftime endpoints --group product
-sorftime endpoints --json > endpoints.json
+sorftime-team domains
+sorftime-team endpoints
+sorftime-team endpoints --group product
+sorftime-team endpoints --json > endpoints.json
 ```
 
 Run a typed command:
 
 ```bash
-sorftime --domain us --output json product get \
+sorftime-team --domain us --output json product get \
   --asin B000000001 B000000002 \
   --trend 2
 ```
@@ -162,8 +174,8 @@ Typed flags use kebab-case, while the CLI sends the API's exact field spelling a
 Each command has endpoint-specific help, including required parameters, allowed values, and documented cost:
 
 ```bash
-sorftime product get --help
-sorftime monitor keyword-update --help
+sorftime-team product get --help
+sorftime-team monitor keyword-update --help
 ```
 
 ## Commands and endpoint coverage
@@ -189,7 +201,7 @@ Typed API commands are organized into six groups:
 | `agent` | 4 | `product`, `category`, `status`, `result` |
 | `account` | 3 | `coins`, `coin-stream`, `request-stream` |
 
-`sorftime endpoints --json` is the authoritative machine-readable inventory. It includes the exact API endpoint name, group, CLI command, cost text, parameters, history/pagination contracts, special timeout, retry risk, effect, and a `blocked` array that can contain both `coin` and `write`.
+`sorftime-team endpoints --json` is the authoritative machine-readable inventory. It includes the exact API endpoint name, group, CLI command, cost text, parameters, history/pagination contracts, special timeout, retry risk, effect, and a `blocked` array that can contain both `coin` and `write`.
 
 ## Typed and raw JSON input
 
@@ -198,11 +210,11 @@ Typed API commands are organized into six groups:
 Values are validated and converted according to the endpoint catalog: integers, numeric ranges, enum choices, dates, months, arrays, JSON objects, and image inputs.
 
 ```bash
-sorftime --domain de category trend \
+sorftime-team --domain de category trend \
   --node-id 123456 \
   --trend-index 0
 
-sorftime keyword list \
+sorftime-team keyword list \
   --pattern '{"RankCondition":[1,1000]}' \
   --page-index 1 \
   --page-size 20
@@ -211,13 +223,13 @@ sorftime keyword list \
 For a JSON-valued typed option, prefix a path with `@` to read the value from a file:
 
 ```bash
-sorftime keyword list --pattern @./keyword-pattern.json
+sorftime-team keyword list --pattern @./keyword-pattern.json
 ```
 
 Image search accepts an existing data URI or `@path`; local `.jpg`, `.jpeg`, `.png`, `.webp`, and `.gif` files receive the corresponding MIME type and are Base64-encoded into the JSON request:
 
 ```bash
-sorftime --domain us product similar-start --image @./product.jpg
+sorftime-team --domain us product similar-start --image @./product.jpg
 ```
 
 Verbose diagnostics redact image data.
@@ -228,15 +240,15 @@ Local image files are capped at 10 MiB as a memory-safety guard.
 Every typed endpoint command, plus `api call`, supports one of these mutually exclusive body sources:
 
 ```bash
-sorftime product search \
+sorftime-team product search \
   --data '{"Page":1,"Query":1,"QueryType":"3","Pattern":"example-brand"}'
 
-sorftime keyword favorite-change --data-file ./favorite-change.json
+sorftime-team keyword favorite-change --data-file ./favorite-change.json
 
 printf '%s\n' '{"Keyword":"power bank"}' | \
-  sorftime keyword get --stdin
+  sorftime-team keyword get --stdin
 
-sorftime --domain us api call ProductQuery --data-file ./request.json
+sorftime-team --domain us api call ProductQuery --data-file ./request.json
 ```
 
 Raw input must be a JSON object. `--data-file` and `--stdin` are limited to 25 MiB. Typed flags may be combined with a raw body; typed values overwrite fields with the same exact API key.
@@ -254,13 +266,13 @@ command 名在多个 group 中重复（例如 `get`），请使用完整 API end
 Store only non-secret defaults in the config file:
 
 ```bash
-sorftime config set domain us
-sorftime config set timeout 120
-sorftime config set output json
-sorftime config list
-sorftime config path
-sorftime config get domain
-sorftime config unset output
+sorftime-team config set domain us
+sorftime-team config set timeout 120
+sorftime-team config set output json
+sorftime-team config list
+sorftime-team config path
+sorftime-team config get domain
+sorftime-team config unset output
 ```
 
 Supported config keys are `domain`, `base-url`, `timeout`, and `output`. Attempts to store a credential through `config set` are rejected.
@@ -287,7 +299,7 @@ setting only `--base-url`, `SORFTIME_BASE_URL`, or config is intentionally insuf
 
 ## Marketplaces and history guardrails
 
-`--domain` accepts the numeric ID, two-letter code, or a listed alias. Use `sorftime domains` for the complete mapping.
+`--domain` accepts the numeric ID, two-letter code, or a listed alias. Use `sorftime-team domains` for the complete mapping.
 
 India, UAE, Australia, Brazil, and Saudi Arabia are documented as not supporting history backfill. History
 behavior is part of each endpoint's registry entry rather than a runner-side name table. For those
@@ -314,17 +326,17 @@ Examples:
 
 ```bash
 # Extract Data/data case-insensitively, then select the first item.
-sorftime --output json --data-only --select 0 product get --asin B000000001
+sorftime-team --output json --data-only --select 0 product get --asin B000000001
 
 # Select an exact dot-separated path; numeric segments index arrays.
-sorftime --output yaml --select Data.Items product search \
+sorftime-team --output yaml --select Data.Items product search \
   --query 1 --query-type 3 --pattern example-brand
 
 # Write through a temporary file and atomically rename it into place.
-sorftime --output json --output-file ./category-tree.json category tree
+sorftime-team --output json --output-file ./category-tree.json category tree
 
 # A path of "-" writes to stdout.
-sorftime --output csv --data-only --output-file - keyword list \
+sorftime-team --output csv --data-only --output-file - keyword list \
   --pattern '{"RankCondition":[1,1000]}'
 ```
 
@@ -336,7 +348,7 @@ table display is intentionally abbreviated.
 Documented list endpoints support bounded automatic pagination:
 
 ```bash
-sorftime --all-pages --max-pages 50 --page-delay 250 \
+sorftime-team --all-pages --max-pages 50 --page-delay 250 \
   --output json --data-only keyword list \
   --pattern '{"RankCondition":[1,1000]}' --page-size 200
 ```
@@ -378,7 +390,7 @@ are never retried: in particular, account-global `500`, `501`, and `694` are rep
 Other HTTP 4xx responses are not retried either.
 
 ```bash
-sorftime --retries 2 account coins
+sorftime-team --retries 2 account coins
 ```
 
 Only enable retries when duplicate processing is acceptable. If the server completed a request but the response was lost, retrying may consume quota again, start a second task, repeat an update, or repeat a delete. The CLI displays documented cost in command help and `endpoints`, but it does not currently estimate the final bill, prompt for confirmation, or provide a dry-run mode. Allowed request-quota calls execute immediately; a policy-blocked call executes only when every applicable single-call override is present.
@@ -414,13 +426,13 @@ The CLI deliberately avoids inventing undocumented API behavior:
 - `CategoryTree` is slow and large: measured live on US at 6m33s, 10.4 MB, 35,126 nodes. The endpoint default timeout is 900 s for that reason; always write the result to a file rather than stdout.
 - Keyword endpoints accept Amazon Brand Analytics terms only. A non-ABA phrase returns business code 11, which means "not an ABA keyword", not "no search volume".
 
-Consult `sorftime <group> <command> --help` and `sorftime endpoints --json` for what the CLI can validate locally. Server behavior and billing remain authoritative.
+Consult `sorftime-team <group> <command> --help` and `sorftime-team endpoints --json` for what the CLI can validate locally. Server behavior and billing remain authoritative.
 
 ## Security
 
 - 每台装了 CLI 的机器上都有一份 Account-SK。Sorftime 的鉴权只有账号级 Account-SK，**没有按人分发的子令牌**，所以分发一次就等于把账号级凭据复制一份；谁泄漏的无法从上游区分。轮换凭据必须所有人同时换。
-- 同样地，配额和限流都是账号全局的，本地 CLI 没有跨机器的用量视图。谁花了多少，只能靠 `sorftime account request-stream` 看总量，看不到分人明细。
-- Prefer `sorftime auth login` or an injected environment secret. Never include a real credential in shell arguments, committed files, logs, test fixtures, or support bundles.
+- 同样地，配额和限流都是账号全局的，本地 CLI 没有跨机器的用量视图。谁花了多少，只能靠 `sorftime-team account request-stream` 看总量，看不到分人明细。
+- Prefer `sorftime-team auth login` or an injected environment secret. Never include a real credential in shell arguments, committed files, logs, test fixtures, or support bundles.
 - `--verbose` recursively redacts image bodies, secret-shaped keys, and any occurrence of the actual loaded credential. Non-secret raw fields are still diagnostic output, so do not place unrelated sensitive business data in them when verbose mode is enabled.
 - URL userinfo is always rejected. The credential is sent automatically only to the canonical Sorftime origin or loopback (`localhost`, `127.0.0.1`, `[::1]`; HTTP is loopback-only). A remote proxy requires a deployment administrator to set `SORFTIME_TRUSTED_ORIGINS` to its exact HTTPS origin, or the CLI rejects before credential resolution and fetch. The allowlist accepts comma-separated origins only—no paths, queries, fragments, or userinfo.
 - Avoid enabling retries for paid or mutating calls unless duplicate execution is safe.

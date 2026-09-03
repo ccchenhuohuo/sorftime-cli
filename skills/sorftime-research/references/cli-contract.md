@@ -1,16 +1,16 @@
 # CLI contract
 
-The `sorftime` CLI is the only execution path. It covers all 52 documented Sorftime endpoints,
+The `sorftime-team` CLI is the only execution path. It covers all 52 documented Sorftime endpoints,
 grouped into six command groups.
 
 ## Discovery
 
 ```bash
-sorftime endpoints                 # all endpoints with billing kind and blocked status
-sorftime endpoints --group keyword # one group
-sorftime endpoints --json          # machine-readable, includes `billing` and `blocked`
-sorftime domains                   # marketplaces and history-backfill support
-sorftime <group> <command> --help  # exact flags for one endpoint
+sorftime-team endpoints                 # all endpoints with billing kind and blocked status
+sorftime-team endpoints --group keyword # one group
+sorftime-team endpoints --json          # machine-readable, includes `billing` and `blocked`
+sorftime-team domains                   # marketplaces and history-backfill support
+sorftime-team <group> <command> --help  # exact flags for one endpoint
 ```
 
 Prefer these over recalling a signature. The registry is the source of truth; this file is not.
@@ -56,17 +56,17 @@ arbitrary arrays. First-page `Data: null` remains null, and a non-empty cap is m
 with `_pagination.upstreamMetadataFromPage` rather than being reinterpreted.
 
 Request bodies for undocumented endpoints go through `--data <json>`, `--data-file <path>`, or
-`--stdin`. `sorftime api call <Endpoint>` accepts registered endpoints only and uses their complete
+`--stdin`. `sorftime-team api call <Endpoint>` accepts registered endpoints only and uses their complete
 registry contract, including required fields, wire encoding, pagination, timeout, and retry risk.
-Unknown names are rejected with guidance to run `sorftime endpoints`.
+Unknown names are rejected with guidance to run `sorftime-team endpoints`.
 
 ## Credentials
 
 ```bash
-sorftime auth login              # interactive prompt
-sorftime auth login --token-stdin # for scripts
-sorftime auth status             # reports availability, never the value
-sorftime auth logout
+sorftime-team auth login              # interactive prompt
+sorftime-team auth login --token-stdin # for scripts
+sorftime-team auth status             # reports availability, never the value
+sorftime-team auth logout
 ```
 
 `auth login` always writes the credential to a mode-0600 file; an OS keychain item is only read
@@ -75,7 +75,7 @@ are symlinks, non-regular files, owned by someone else, or group/other-accessibl
 never accepted as a command-line flag and never appears in output, `--verbose` diagnostics, or error
 text. Never ask the user to paste it into the conversation.
 
-`sorftime config set domain|base-url|timeout|output` holds non-secret defaults. `config set` refuses
+`sorftime-team config set domain|base-url|timeout|output` holds non-secret defaults. `config set` refuses
 credential-shaped keys.
 
 ## Blocked by policy
@@ -87,7 +87,7 @@ The axes are independent, so the four subscription creators plus `monitor keywor
 require only their matching override. The block is enforced in the runner and therefore also
 applies to `api call`.
 
-`sorftime endpoints` prints `open`, `COIN`, `WRITE`, or `COIN+WRITE`; JSON discovery returns the
+`sorftime-team endpoints` prints `open`, `COIN`, `WRITE`, or `COIN+WRITE`; JSON discovery returns the
 corresponding `blocked` array. The Skill must never add either override on its own initiative.
 
 ## Credential destination

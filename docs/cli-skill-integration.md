@@ -4,7 +4,7 @@
 
 | 层 | 承载 | 不承载 |
 |---|---|---|
-| `sorftime` CLI | 参数校验、端点路由、凭据、计费闸、分页、输出、上游错误 | 意图理解、口径解释 |
+| `sorftime-team` CLI | 参数校验、端点路由、凭据、计费闸、分页、输出、上游错误 | 意图理解、口径解释 |
 | Sorftime Research Skill | 意图路由、缺参澄清、花钱前确认、证据与口径纪律 | 执行、凭据、端点清单 |
 
 一条原则：**能在 CLI 里硬做的就硬做，做不成硬约束的才写进 Skill。** 提示词是建议性的，Host 可以不采纳；`runner.ts` 里的 `assertEndpointAllowed()` 不可绕过。Coin 与写操作的拦截因此放在 CLI，不放在 Skill。
@@ -14,11 +14,11 @@
 Skill 里**没有**52 个端点的清单，只有一张覆盖常见意图的路由表和一句"不确定就问 CLI"：
 
 ```bash
-sorftime endpoints --group keyword
-sorftime category best-sellers --help
+sorftime-team endpoints --group keyword
+sorftime-team category best-sellers --help
 ```
 
-理由：注册表会漂移，Skill 里的副本会过期，而过期的副本比没有更危险。`sorftime endpoints --json` 输出里带 `billing`、`effect` 和 `blocked` 数组，Skill 据此识别独立策略轴，而不是靠记忆。
+理由：注册表会漂移，Skill 里的副本会过期，而过期的副本比没有更危险。`sorftime-team endpoints --json` 输出里带 `billing`、`effect` 和 `blocked` 数组，Skill 据此识别独立策略轴，而不是靠记忆。
 
 ## 需要同步改动的边界
 
@@ -50,4 +50,4 @@ CLI 不做交互式确认（它要能在脚本里跑），所以"确认成本"�
 
 - CLI 注册了全部 52 个端点，但默认只放行 41 个；另外 11 个要显式 `--allow-coin` / `--allow-write`。Skill 只路由常用意图。
 - CLI 不知道"这次分析要花多少"，只知道单条命令的文档成本；总预算控制目前只有人在管。
-- 每台机器的 CLI 各自独立，没有跨机器的用量视图。`sorftime account request-stream` 看到的是账号总量。
+- 每台机器的 CLI 各自独立，没有跨机器的用量视图。`sorftime-team account request-stream` 看到的是账号总量。

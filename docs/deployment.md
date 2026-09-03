@@ -12,7 +12,7 @@
 
 ## 分发前必须知道的三件事
 
-**1. Sorftime 没有按人分发的令牌。** 鉴权只有一个账号级 Account-SK。"给每人一个访问令牌"在这个 API 上不成立——实际发生的是同一把账号凭据被复制 N 份。后果：泄漏源无法从上游区分；轮换必须全员同时进行；离职回收依赖每台机器执行 `sorftime auth logout`，没有服务端可以吊销。
+**1. Sorftime 没有按人分发的令牌。** 鉴权只有一个账号级 Account-SK。"给每人一个访问令牌"在这个 API 上不成立——实际发生的是同一把账号凭据被复制 N 份。后果：泄漏源无法从上游区分；轮换必须全员同时进行；离职回收依赖每台机器执行 `sorftime-team auth logout`，没有服务端可以吊销。
 
 **2. 配额与限流是账号全局的。** 一个人的误操作会占用所有人的额度。上线前确认月度额度，并把下面这条讲清楚：`500`（月度上限）、`501`（每分钟上限）、`694`（次数不足）都可能由同事触发，遇到就停，不要重试。多人并发跑批时 `501` 会互相踩踏，用 `--page-delay` 缓解。
 
@@ -31,16 +31,16 @@ corepack enable
 pnpm install --frozen-lockfile
 pnpm build
 npm install -g .
-sorftime --version
+sorftime-team --version
 ```
 
 ## 凭据
 
 ```bash
-sorftime auth login              # 交互式，输入不回显
-sorftime auth login --token-stdin # 脚本/自动化
-sorftime auth status             # 只报告有无，不打印值
-sorftime auth logout             # 离职或换机时执行
+sorftime-team auth login              # 交互式，输入不回显
+sorftime-team auth login --token-stdin # 脚本/自动化
+sorftime-team auth status             # 只报告有无，不打印值
+sorftime-team auth logout             # 离职或换机时执行
 ```
 
 `auth login` **总是**把凭据原子写入 `credentials.json`（权限 `0600`，目录 `0700`），不写钥匙串——这样凭据不会出现在进程参数里。读取优先级是：`SORFTIME_ACCOUNT_SK` 环境变量 > 旧版本遗留的 macOS 钥匙串项 > 0600 凭据文件；CLI 不提供 `--token`。钥匙串只在读取路径上做旧版本兼容，`auth logout` 会一并清掉；设 `SORFTIME_CREDENTIAL_STORE=file` 可跳过钥匙串查找。
@@ -76,9 +76,9 @@ docker run --rm -e SORFTIME_ACCOUNT_SK=... sorftime-cli account request-stream
 - [ ] 月度 request 额度已确认，并按预计用量估算过够不够
 - [ ] 已在 Sorftime 控制台确认账号未启用 IP 白名单（实测未见 `400`，但 API 查不到该设置）
 - [ ] 每位使用者都知道配额是共享的，以及遇到 `500`/`501`/`694` 要停不要重试
-- [ ] `sorftime endpoints` 的 `STATUS` 列已向使用者说明，且大家知道 `COIN+WRITE` 必须两个单次 flag 都明确批准
+- [ ] `sorftime-team endpoints` 的 `STATUS` 列已向使用者说明，且大家知道 `COIN+WRITE` 必须两个单次 flag 都明确批准
 - [ ] 凭据轮换流程写下来了（谁通知、多久、怎么确认全员完成）
-- [ ] 离职/换机的 `sorftime auth logout` 纳入了 offboarding 清单
+- [ ] 离职/换机的 `sorftime-team auth logout` 纳入了 offboarding 清单
 - [ ] Skill 已装到各自的 Host（`$CODEX_HOME/skills/` 或 `.claude/skills/`）
 
 ## 这个形态换不来的东西

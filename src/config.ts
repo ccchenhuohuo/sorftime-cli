@@ -45,7 +45,7 @@ function normalizeStoredConfig(value: unknown): StoredConfig {
   const raw = value as Record<string, unknown>;
   const secretKey = Object.keys(raw).find((key) => SECRET_CONFIG_KEY.test(key));
   if (secretKey) {
-    throw new ValidationError(`Secret-like key '${secretKey}' is not allowed in config.json. Remove it and use 'sorftime auth login'.`);
+    throw new ValidationError(`Secret-like key '${secretKey}' is not allowed in config.json. Remove it and use 'sorftime-team auth login'.`);
   }
 
   const config: StoredConfig = {};

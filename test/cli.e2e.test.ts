@@ -160,7 +160,7 @@ describe("CLI contract", () => {
     }
     const unknown = await runCli(["api", "call", "FutureEndpoint", "--data", "{}"], env);
     expect(unknown.code).toBe(2);
-    expect(unknown.stderr).toContain("sorftime endpoints");
+    expect(unknown.stderr).toContain("sorftime-team endpoints");
     expect(unknown.stdout + unknown.stderr).not.toContain("validation-sentinel");
   });
 

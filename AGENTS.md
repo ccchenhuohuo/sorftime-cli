@@ -36,14 +36,14 @@ Read the smallest relevant set before changing code:
 
 1. Never commit or print a real Sorftime Account-SK, credential file, or `Authorization` header. `--verbose` must never reveal it.
 2. `src/policy.ts` must classify all 52 endpoints for billing. Never derive cost from the human-readable `cost` string in `endpoints.ts`, which is advisory prose for `--help`.
-3. Both blocks live in `assertEndpointAllowed()`, called from `runEndpoint()` before credential resolution and before any network call, so they also cover `sorftime api call`.
+3. Both blocks live in `assertEndpointAllowed()`, called from `runEndpoint()` before credential resolution and before any network call, so they also cover `sorftime-team api call`.
 4. An endpoint absent from the billing catalog is treated as Coin-spending. Unpriced is not free.
 5. `--allow-coin` and `--allow-write` are deliberate single-invocation overrides. Never make either a config default, an environment variable, or a Skill default. Everyone holds the same account-level credential, so a write changes what every colleague sees and `BestSellerListDelete` has no undo.
 6. Retries stay at zero by default. A lost response must not duplicate paid work. Task-creating endpoints additionally require `--retry-unsafe`.
 7. Preserve exact documented wire casing (`ASIN`, `Asin`, `Asins`, `Querystartdt`). Do not normalize payload keys at the client boundary.
 8. Upstream unknown schemas remain JSON. Do not invent field meanings or present missing/unavailable values as zero.
 9. Quota is account-global, never a per-person allowance. `500`, `501`, and `694` may be caused by another user; report and stop rather than retrying.
-10. Credentials come from `sorftime auth login`, `SORFTIME_ACCOUNT_SK`, the OS keychain, or a mode-0600 file. `config set` must keep refusing credential-shaped keys.
+10. Credentials come from `sorftime-team auth login`, `SORFTIME_ACCOUNT_SK`, the OS keychain, or a mode-0600 file. `config set` must keep refusing credential-shaped keys.
 11. The Skill must not request credentials, invent identifiers, silently substitute a different endpoint for a blocked one, or infer causality.
 12. Do not reintroduce an MCP server, an HTTP transport, or a per-identity rate limiter without a topology that needs one.
 13. Account-SK may be sent only to the canonical Sorftime origin, loopback, or an exact HTTPS origin
@@ -88,7 +88,7 @@ When a command name, flag, billing classification, error code, or interpretation
 - update Skill evals and `test/skill-contract.test.ts`;
 - update `docs/cli-skill-integration.md` and README if user behavior changes.
 
-The Skill must discover uncertain capability through `sorftime endpoints` and `--help`. It must not become a second endpoint registry.
+The Skill must discover uncertain capability through `sorftime-team endpoints` and `--help`. It must not become a second endpoint registry.
 
 ## Validation
 
